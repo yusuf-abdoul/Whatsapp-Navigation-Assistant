@@ -47,6 +47,22 @@ Conventional Commits:
 - Squash-merge to `main`.
 - Link the GitHub issue or PRD section in the description.
 
+## Testing Webhooks Locally
+
+Twilio needs a public URL to POST to. Use ngrok:
+
+```bash
+# terminal 1
+uv run uvicorn app.main:app --reload
+
+# terminal 2
+ngrok http 8000
+```
+
+Copy the ngrok HTTPS URL (e.g. `https://abc123.ngrok.app`) and set it as the WhatsApp sandbox webhook in the Twilio console: `<ngrok-url>/webhook/twilio`.
+
+Join the sandbox from your phone (code in Twilio console), then message the sandbox number. You should see `{"status": "accepted"}` logs in terminal 1 and receive an echo reply.
+
 ## Tests
 
 - Unit tests go in `tests/unit/` — no network, no Redis, no external calls.
