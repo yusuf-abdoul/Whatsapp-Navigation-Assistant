@@ -1,0 +1,33 @@
+services:
+  - type: web
+    name: wna-api
+    runtime: docker
+    plan: starter
+    region: frankfurt
+    healthCheckPath: /health
+    envVars:
+      - key: ENV
+        value: production
+      - key: CHANNEL_PROVIDER
+        value: meta
+      - key: META_PHONE_NUMBER_ID
+        sync: false
+      - key: META_ACCESS_TOKEN
+        sync: false
+      - key: META_WEBHOOK_VERIFY_TOKEN
+        sync: false
+      - key: META_APP_SECRET
+        sync: false
+      - key: LOCATIONIQ_KEY
+        sync: false
+      - key: REDIS_URL
+        fromService:
+          type: keyvalue
+          name: wna-redis
+          property: connectionString
+
+  - type: keyvalue
+    name: wna-redis
+    plan: starter
+    region: frankfurt
+    ipAllowList: []
