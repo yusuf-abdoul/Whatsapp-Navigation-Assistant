@@ -12,12 +12,19 @@ dependencies = [
     "redis>=5.0",
     "pyyaml>=6.0",
     "structlog>=24.4",
+    "sqlalchemy[asyncio]>=2.0",
+    "asyncpg>=0.29",
+    "alembic>=1.13",
 ]
 
 [dependency-groups]
 dev = [
     "pytest>=8.3",
     "pytest-asyncio>=0.24",
+    "respx>=0.21",
+    "fakeredis>=2.26",
+    "pytest-postgresql>=6.0",
+    "psycopg[binary]>=3.2",
     "ruff>=0.7",
     "mypy>=1.13",
     "types-pyyaml",
@@ -26,6 +33,7 @@ dev = [
 [tool.ruff]
 line-length = 100
 target-version = "py312"
+extend-exclude = ["alembic/versions"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "W", "UP", "B", "SIM", "RUF"]

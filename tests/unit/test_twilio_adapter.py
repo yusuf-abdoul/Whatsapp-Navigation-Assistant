@@ -15,9 +15,7 @@ TOKEN = "test_auth_token_123"
 
 def _sign(url: str, form: dict[str, str], token: str = TOKEN) -> str:
     data = url + "".join(f"{k}{form[k]}" for k in sorted(form))
-    return base64.b64encode(
-        hmac.new(token.encode(), data.encode("utf-8"), sha1).digest()
-    ).decode()
+    return base64.b64encode(hmac.new(token.encode(), data.encode("utf-8"), sha1).digest()).decode()
 
 
 def _req(form: dict[str, str], signature: str | None = None, url: str = URL) -> InboundRequest:

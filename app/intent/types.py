@@ -6,4 +6,5 @@ class Intent(StrEnum):
     NEARBY = "nearby"
     HELP = "help"
     CLARIFY = "clarify"
+    CANCEL = "cancel"
     UNKNOWN = "unknown"

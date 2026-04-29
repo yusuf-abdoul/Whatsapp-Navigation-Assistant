@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Any
 
 from pydantic import BaseModel, Field
@@ -19,4 +19,4 @@ class SessionState(BaseModel):
     destination: Place | None = None
     last_intent: Intent = Intent.UNKNOWN
     pending_clarification: list[dict[str, Any]] = Field(default_factory=list)
-    updated_at: datetime = Field(default_factory=datetime.utcnow)
+    updated_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
