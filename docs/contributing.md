@@ -4,14 +4,20 @@
 
 ```bash
 uv sync
-cp .env.example .env   # fill in secrets from 1Password
+cp .env.example .env                  # fill in secrets from 1Password
+docker compose up -d                  # Postgres + Redis
+uv run alembic upgrade head           # apply migrations
+uv run python -m app.corridors.seed   # load seed corridors
 uv run uvicorn app.main:app --reload
 ```
 
-Run Redis locally via Docker if you don't have it:
-```bash
-docker run -d -p 6379:6379 redis:7-alpine
-```
+If you only want one service: `docker compose up -d postgres` or `docker compose up -d redis`.
+
+## Seed corridors
+
+Seed YAMLs live under [data/corridors/<city>/](../data/corridors/). Each file is one corridor — its destination, ordered segments, and the anchors it touches. The loader upserts anchors by `(name, city)` and inserts a fresh corridor each run, so re-running seeds cleanly extends the dataset without duplicating place rows.
+
+To add a new seed corridor: copy an existing `.yaml`, edit anchors / segments / destination, and re-run the loader. Every named stop on the route should be its own anchor (with lat/lon) — don't bury intermediate landmarks inside instruction text, or the lookup can't reason over them.
 
 ## Ownership Map
 

@@ -1,0 +1,58 @@
+city: abuja
+status: approved
+contributor: seed
+applicability_notes: All day; rush-hour traffic 7-9am and 5-7pm.
+applicability_windows: []
+
+anchors:
+  - name: Police Signpost
+    lat: 8.940
+    lon: 7.360
+    aliases: [police signboard, lugbe police, lugbe signpost]
+  - name: Car Wash
+    lat: 8.970
+    lon: 7.390
+    aliases: [carwash]
+  - name: Federal Housing Bridge
+    lat: 9.000
+    lon: 7.420
+    aliases: [fed housing, federal housing]
+  - name: Berger
+    lat: 9.040
+    lon: 7.460
+    aliases: [berger junction]
+  - name: Banex Plaza
+    lat: 9.075
+    lon: 7.482
+    aliases: [banex, banex plaza wuse]
+
+destination: Banex Plaza
+
+segments:
+  - sequence: 1
+    from: Police Signpost
+    to: Car Wash
+    mode: taxi
+    instruction: Take a taxi heading Berger; you'll pass Car Wash on the way.
+    cost_ngn: 200
+    duration_min: 5
+  - sequence: 2
+    from: Car Wash
+    to: Federal Housing Bridge
+    mode: taxi
+    instruction: Stay on the same taxi past Federal Housing Bridge.
+    duration_min: 5
+  - sequence: 3
+    from: Federal Housing Bridge
+    to: Berger
+    mode: taxi
+    instruction: Stay on until Berger junction.
+    cost_ngn: 200
+    duration_min: 10
+  - sequence: 4
+    from: Berger
+    to: Banex Plaza
+    mode: keke
+    instruction: Take a keke from Berger to Banex Plaza.
+    cost_ngn: 200
+    duration_min: 10

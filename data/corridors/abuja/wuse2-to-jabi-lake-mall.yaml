@@ -1,0 +1,37 @@
+city: abuja
+status: approved
+contributor: seed
+applicability_notes: Reliable during the day. Fewer kekes after 8pm.
+applicability_windows: []
+
+anchors:
+  - name: Wuse 2 Market
+    lat: 9.077
+    lon: 7.483
+    aliases: [wuse 2, wuse market, wuse two]
+  - name: Aminu Kano Crescent Junction
+    lat: 9.080
+    lon: 7.470
+    aliases: [aminu kano, aminu kano crescent]
+  - name: Jabi Lake Mall
+    lat: 9.080
+    lon: 7.420
+    aliases: [jabi mall, jabi lake]
+
+destination: Jabi Lake Mall
+
+segments:
+  - sequence: 1
+    from: Wuse 2 Market
+    to: Aminu Kano Crescent Junction
+    mode: keke
+    instruction: Take a keke heading Aminu Kano Crescent.
+    cost_ngn: 200
+    duration_min: 5
+  - sequence: 2
+    from: Aminu Kano Crescent Junction
+    to: Jabi Lake Mall
+    mode: taxi
+    instruction: From the junction, take a taxi to Jabi Lake Mall (drop at the main gate).
+    cost_ngn: 500
+    duration_min: 15

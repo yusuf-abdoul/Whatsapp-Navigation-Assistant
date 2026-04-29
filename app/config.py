@@ -25,6 +25,7 @@ class Settings(BaseSettings):
     locationiq_key: str = ""
 
     redis_url: str = "redis://localhost:6379/0"
+    database_url: str = "postgresql+asyncpg://wna:wna_dev@localhost:5432/wna"
 
     session_ttl_seconds: int = Field(default=600, ge=60, le=3600)
     rate_limit_per_hour: int = Field(default=30, ge=1)

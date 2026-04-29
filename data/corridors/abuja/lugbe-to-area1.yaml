@@ -1,0 +1,56 @@
+city: abuja
+status: approved
+contributor: seed
+applicability_notes: All day. Last buses to Area 1 around 9pm.
+applicability_windows: []
+
+anchors:
+  - name: Newsite Estate Gate
+    lat: 8.935
+    lon: 7.355
+    aliases: [newsite gate, newsite estate]
+  - name: Police Signpost
+    lat: 8.940
+    lon: 7.360
+    aliases: [police signboard, lugbe police, lugbe signpost]
+  - name: Lugbe Pedestrian Bridge
+    lat: 8.943
+    lon: 7.362
+    aliases: [lugbe bridge, pedestrian bridge]
+  - name: Area 1 Bridge
+    lat: 9.020
+    lon: 7.490
+  - name: Area 1 Shopping Complex
+    lat: 9.025
+    lon: 7.495
+    aliases: [area 1, area1, area one, area 1 mall]
+
+destination: Area 1 Shopping Complex
+
+segments:
+  - sequence: 1
+    from: Newsite Estate Gate
+    to: Police Signpost
+    mode: bike
+    instruction: Take a bike from your gate to Police Signpost.
+    cost_ngn: 200
+    duration_min: 5
+  - sequence: 2
+    from: Police Signpost
+    to: Lugbe Pedestrian Bridge
+    mode: walk
+    instruction: Cross the pedestrian bridge to the other side of the road.
+    duration_min: 3
+  - sequence: 3
+    from: Lugbe Pedestrian Bridge
+    to: Area 1 Bridge
+    mode: car
+    instruction: Take a car going to Area 1; drop at the Area 1 bridge.
+    cost_ngn: 400
+    duration_min: 25
+  - sequence: 4
+    from: Area 1 Bridge
+    to: Area 1 Shopping Complex
+    mode: walk
+    instruction: Walk down the bridge and cross to the other side; the complex is about 1km from there.
+    duration_min: 12
