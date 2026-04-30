@@ -5,6 +5,9 @@ bureaucratic tails ("Federal Capital Territory", postal codes, "Nigeria") that
 users don't care about in a chat reply.
 """
 
+from collections.abc import Sequence
+
+from app.corridors.models import Corridor, Segment
 from app.errors import ErrorKind
 from app.routing.locationiq import Route
 from app.session.state import Place
@@ -48,10 +51,61 @@ def format_ambiguity(query: str, candidates: list[Place]) -> tuple[str, list[str
 
 def format_route(destination: Place, route: Route) -> str:
     name = short_name(destination.display_name) or destination.query
-    km = route.distance_m / 1000
-    minutes = round(route.duration_s / 60)
-    km_str = f"{km:.1f} km" if km < 10 else f"{round(km)} km"
-    return f"{name} is ~{km_str} away, ~{minutes} min by car.\nMap: {route.deep_link}"
+    return (
+        f"{name} is about {_format_km(route.distance_m)}, ~{_format_min(route.duration_s)}.\n"
+        f"Map: {route.deep_link}"
+    )
+
+
+def format_corridor(
+    corridor: Corridor,
+    segments: Sequence[Segment],
+    *,
+    distance_m: float | None = None,
+    duration_s: float | None = None,
+    deep_link: str | None = None,
+) -> str:
+    """Render a corridor hit as numbered commuter steps.
+
+    `segments` is the (possibly clipped) list to show — pass exactly what the
+    user should follow from their join point onward.
+    Distance/duration/deep_link are optional and come from LocationIQ between
+    the user's actual coordinates and the corridor's destination, since the
+    corridor's segments don't carry geographic distance themselves.
+    """
+    dest_name = corridor.destination.name
+    lines: list[str] = [f"To {dest_name}:"]
+    for i, s in enumerate(segments, start=1):
+        line = f"{i}. {s.instruction}"
+        extras: list[str] = []
+        if s.cost_ngn:
+            extras.append(f"₦{s.cost_ngn}")
+        if s.duration_min:
+            extras.append(f"~{s.duration_min} min")
+        if extras:
+            line += f" ({', '.join(extras)})"
+        lines.append(line)
+
+    footer: list[str] = []
+    if distance_m is not None and duration_s is not None:
+        footer.append(f"About {_format_km(distance_m)} · ~{_format_min(duration_s)}.")
+    if corridor.applicability_notes:
+        footer.append(corridor.applicability_notes)
+    if deep_link:
+        footer.append(f"Map: {deep_link}")
+    if footer:
+        lines.append("")
+        lines.extend(footer)
+    return "\n".join(lines)
+
+
+def _format_km(distance_m: float) -> str:
+    km = distance_m / 1000
+    return f"{km:.1f} km" if km < 10 else f"{round(km)} km"
+
+
+def _format_min(duration_s: float) -> str:
+    return f"{round(duration_s / 60)} min"
 
 
 _ERROR_MESSAGES: dict[ErrorKind, str] = {

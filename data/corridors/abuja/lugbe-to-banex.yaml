@@ -52,7 +52,7 @@ segments:
   - sequence: 4
     from: Berger
     to: Banex Plaza
-    mode: keke
-    instruction: Take a keke from Berger to Banex Plaza.
-    cost_ngn: 200
+    mode: taxi
+    instruction: Take another taxi from Berger to Banex Plaza.
+    cost_ngn: 300
     duration_min: 10

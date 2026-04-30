@@ -42,6 +42,17 @@ async def fake_redis() -> AsyncIterator[fakeredis.aioredis.FakeRedis]:
         await client.aclose()
 
 
+@pytest.fixture(autouse=True)
+def _no_corridors() -> AsyncIterator[None]:
+    """Default: corridor lookups return nothing so tests exercise the LocationIQ
+    fallback path. Tests covering the corridor path live in tests/integration/."""
+    with (
+        patch("app.flows.orchestrator._lookup_corridor", AsyncMock(return_value=None)),
+        patch("app.flows.orchestrator._try_corridor_reply", AsyncMock(return_value=False)),
+    ):
+        yield
+
+
 @pytest.fixture
 def channel() -> FakeChannel:
     return FakeChannel()

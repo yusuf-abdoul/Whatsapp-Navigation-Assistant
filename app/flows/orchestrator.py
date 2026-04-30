@@ -1,20 +1,35 @@
 """Flow orchestrator — state-aware conversation dispatch.
 
 State machine (derived from session contents, no explicit flag):
-  IDLE → DIRECTION(X) → geocode → destination set → AWAITING_ORIGIN
-  AWAITING_ORIGIN + live location → route → reply → IDLE (session cleared)
-  AWAITING_ORIGIN + text(Y)       → geocode(Y) as origin → route → reply → IDLE
+  IDLE → DIRECTION(X) → corridor or geocode → destination set → AWAITING_ORIGIN
+  AWAITING_ORIGIN + live location → render corridor or LocationIQ route → IDLE
+  AWAITING_ORIGIN + text(Y)       → geocode(Y) as origin → render → IDLE
   any state + new DIRECTION       → overwrite destination, re-enter AWAITING_ORIGIN
   any state + CANCEL              → clear session
+
+Reply preference: a curated corridor (numbered commuter steps) when one exists
+for the destination AND the user is near a corridor anchor. Otherwise we fall
+back to the LocationIQ-only "X km, ~Y min, map link" reply.
 """
 
 import re
 
+import structlog
+from sqlalchemy.exc import SQLAlchemyError
+
 from app.analytics.events import Event, emit
 from app.channel.base import ChannelAdapter, InboundMessage
+from app.corridors.db import session_factory
+from app.corridors.models import Corridor
+from app.corridors.repository import (
+    clip_segments_from_anchor,
+    find_corridors_by_destination,
+    nearest_anchor_in_corridor,
+)
 from app.errors import ErrorKind, WNAError
 from app.formatting.responses import (
     format_ambiguity,
+    format_corridor,
     format_error,
     format_route,
     short_name,
@@ -49,13 +64,22 @@ _ORIGIN_PREFIX = re.compile(
     re.IGNORECASE,
 )
 
+# Default city for corridor lookups. Multi-city launch will derive this per-user.
+_DEFAULT_CITY = "abuja"
+
+log = structlog.get_logger("orchestrator")
+
+# A corridor reply is only useful if the user is reasonably close to one of its
+# anchors. Beyond this distance the corridor's instructions don't apply to the
+# user's actual starting point — fall back to LocationIQ.
+_CORRIDOR_JOIN_RADIUS_M = 2000
+
 
 async def handle(message: InboundMessage, channel: ChannelAdapter) -> None:
     emit(Event.FIRST_CONTACT_RECEIVED, user_id=message.user_id)
 
     session = await store.get(message.user_id) or SessionState(user_id=message.user_id)
 
-    # Location share always means "this is my origin" — it can't be anything else.
     if message.latitude is not None and message.longitude is not None:
         await _handle_location(session, message.latitude, message.longitude, channel)
         return
@@ -80,7 +104,6 @@ async def handle(message: InboundMessage, channel: ChannelAdapter) -> None:
         await _handle_direction(session, result.query, channel)
         return
 
-    # Non-command text while awaiting origin → treat as origin statement.
     if _awaiting_origin(session):
         await _handle_origin_text(session, message.text, channel)
         return
@@ -100,6 +123,30 @@ def _awaiting_origin(session: SessionState) -> bool:
 
 
 async def _handle_direction(session: SessionState, query: str, channel: ChannelAdapter) -> None:
+    # Corridor first — if we have curated steps for this destination, use the
+    # corridor's destination anchor for lat/lon and skip LocationIQ geocoding.
+    corridor = await _lookup_corridor(query)
+    if corridor is not None:
+        anchor = corridor.destination
+        session.destination = Place(
+            query=query,
+            lat=anchor.lat,
+            lon=anchor.lon,
+            display_name=anchor.name,
+        )
+        session.origin = None
+        session.last_intent = Intent.DIRECTION
+        await store.put(session)
+        emit(Event.DESTINATION_RECEIVED, user_id=session.user_id, query=query, source="corridor")
+        emit(Event.ORIGIN_REQUESTED, user_id=session.user_id)
+        await channel.send_text(
+            session.user_id,
+            f"Found {anchor.name}. Now share your live location, "
+            "or tell me where you're starting from (e.g. 'I'm at Lugbe').",
+        )
+        return
+
+    # Fallback: LocationIQ geocode
     try:
         candidates = await geocode(query)
     except WNAError as e:
@@ -128,7 +175,7 @@ async def _handle_direction(session: SessionState, query: str, channel: ChannelA
 
     place = candidates[0]
     emit(Event.GEOCODE_SUCCESS, user_id=session.user_id, query=query)
-    emit(Event.DESTINATION_RECEIVED, user_id=session.user_id, query=query)
+    emit(Event.DESTINATION_RECEIVED, user_id=session.user_id, query=query, source="locationiq")
 
     session.destination = place
     session.origin = None
@@ -191,6 +238,11 @@ async def _route_and_reply(session: SessionState, origin: Place, channel: Channe
         await channel.send_text(session.user_id, format_error(ErrorKind.GEOCODE_FAIL))
         return
 
+    # Try corridor reply first (curated commuter steps).
+    if await _try_corridor_reply(session, origin, channel):
+        return
+
+    # Fallback: LocationIQ-only route.
     try:
         r = await route(
             origin_lat=origin.lat,
@@ -208,11 +260,101 @@ async def _route_and_reply(session: SessionState, origin: Place, channel: Channe
         user_id=session.user_id,
         distance_m=r.distance_m,
         duration_s=r.duration_s,
+        source="locationiq",
     )
     emit(Event.SESSION_COMPLETED, user_id=session.user_id)
-
     await channel.send_text(session.user_id, format_route(dest, r))
     await store.delete(session.user_id)
+
+
+async def _try_corridor_reply(
+    session: SessionState, origin: Place, channel: ChannelAdapter
+) -> bool:
+    """Return True if a corridor reply was sent. False = caller should fall back.
+
+    Any DB error is logged and treated as "no corridor" so the LocationIQ
+    fallback still serves the user — the corridor layer is preference, not
+    requirement.
+    """
+    dest = session.destination
+    if dest is None or origin.lat is None or origin.lon is None:
+        return False
+
+    try:
+        factory = session_factory()
+        async with factory() as db:
+            corridors = await find_corridors_by_destination(
+                db, dest.query, city=_DEFAULT_CITY
+            )
+            if not corridors:
+                return False
+            corridor = corridors[0]
+
+            result = await nearest_anchor_in_corridor(db, corridor.id, origin.lat, origin.lon)
+            if result is None:
+                return False
+            nearest, dist_to_anchor_m = result
+            if dist_to_anchor_m > _CORRIDOR_JOIN_RADIUS_M:
+                return False
+
+            clipped = clip_segments_from_anchor(corridor.segments, nearest.id)
+            if not clipped:
+                return False
+    except SQLAlchemyError as e:
+        log.warning("corridor_lookup_failed", error=str(e))
+        return False
+
+    # LocationIQ for distance/ETA (corridor segments don't carry geographic distance).
+    distance_m: float | None = None
+    duration_s: float | None = None
+    deep_link: str | None = None
+    if dest.lat is not None and dest.lon is not None:
+        try:
+            r = await route(
+                origin_lat=origin.lat,
+                origin_lon=origin.lon,
+                dest_lat=dest.lat,
+                dest_lon=dest.lon,
+            )
+            distance_m = r.distance_m
+            duration_s = r.duration_s
+            deep_link = r.deep_link
+        except WNAError:
+            pass  # corridor reply still works without distance/ETA
+
+    emit(
+        Event.ROUTE_SUCCESS,
+        user_id=session.user_id,
+        source="corridor",
+        nearest_anchor=nearest.name,
+        nearest_anchor_distance_m=round(dist_to_anchor_m),
+        steps=len(clipped),
+    )
+    emit(Event.SESSION_COMPLETED, user_id=session.user_id)
+    await channel.send_text(
+        session.user_id,
+        format_corridor(
+            corridor,
+            clipped,
+            distance_m=distance_m,
+            duration_s=duration_s,
+            deep_link=deep_link,
+        ),
+    )
+    await store.delete(session.user_id)
+    return True
+
+
+async def _lookup_corridor(query: str) -> Corridor | None:
+    """Return the first matching corridor, or None on miss / DB error."""
+    try:
+        factory = session_factory()
+        async with factory() as db:
+            corridors = await find_corridors_by_destination(db, query, city=_DEFAULT_CITY)
+            return corridors[0] if corridors else None
+    except SQLAlchemyError as e:
+        log.warning("corridor_lookup_failed", query=query, error=str(e))
+        return None
 
 
 def _strip_origin_prefix(text: str) -> str:
