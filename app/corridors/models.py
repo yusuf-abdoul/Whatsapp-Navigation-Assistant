@@ -17,6 +17,7 @@ import uuid
 from datetime import datetime
 
 from sqlalchemy import (
+    Boolean,
     CheckConstraint,
     DateTime,
     Float,
@@ -29,6 +30,7 @@ from sqlalchemy import (
 )
 from sqlalchemy.dialects.postgresql import ARRAY, JSONB, UUID
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
+from sqlalchemy.sql import expression
 
 CORRIDOR_STATUSES = ("pending", "approved", "rejected")
 SEGMENT_MODES = ("taxi", "keke", "bike", "walk", "bus", "car", "mixed")
@@ -97,9 +99,7 @@ class Corridor(Base):
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
-    approved_at: Mapped[datetime | None] = mapped_column(
-        DateTime(timezone=True), nullable=True
-    )
+    approved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         server_default=func.now(),
@@ -148,6 +148,11 @@ class Segment(Base):
     )
     mode: Mapped[str] = mapped_column(String(20), nullable=False)
     instruction: Mapped[str] = mapped_column(String(500), nullable=False)
+    # Marks a vehicle change vs prior segment. Same-mode runs without a
+    # transfer flag are collapsed by the renderer into one user-facing step.
+    transfer: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default=expression.false()
+    )
     cost_ngn: Mapped[int | None] = mapped_column(Integer, nullable=True)
     duration_min: Mapped[int | None] = mapped_column(Integer, nullable=True)
     time_windows: Mapped[list[dict[str, object]] | None] = mapped_column(JSONB, nullable=True)

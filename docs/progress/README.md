@@ -19,4 +19,5 @@ In chronological order:
 3. [Phase 1a — Corridor schema](phase-1a-corridor-schema.md) — 2026-04-27
 4. [Phase 1b — Corridor repository](phase-1b-corridor-repository.md) — 2026-04-27
 5. [Phase 1c — Seed corridors](phase-1c-corridor-seed.md) — 2026-04-27
+6. [Phase 1d.1 — Live-test fixes](phase-1d.1-live-test-fixes.md) — 2026-05-05
 6. [Phase 1d — Orchestrator integration](phase-1d-orchestrator-integration.md) — 2026-04-30

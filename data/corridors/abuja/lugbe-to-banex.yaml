@@ -28,31 +28,38 @@ anchors:
 
 destination: Banex Plaza
 
+# Authoring rule: each `instruction` is phrased as a fresh boarding directive
+# that names the segment's `to` anchor. The renderer collapses consecutive
+# same-mode segments into one step and uses the LAST segment's instruction
+# (so it names the run's destination, not an intermediate anchor). Set
+# `transfer: true` on a segment when the user must change vehicles, even if
+# the mode is the same as the previous segment.
 segments:
   - sequence: 1
     from: Police Signpost
     to: Car Wash
     mode: taxi
-    instruction: Take a taxi heading Berger; you'll pass Car Wash on the way.
+    instruction: Take a taxi to Berger junction.
     cost_ngn: 200
     duration_min: 5
   - sequence: 2
     from: Car Wash
     to: Federal Housing Bridge
     mode: taxi
-    instruction: Stay on the same taxi past Federal Housing Bridge.
+    instruction: Take a taxi to Berger junction.
     duration_min: 5
   - sequence: 3
     from: Federal Housing Bridge
     to: Berger
     mode: taxi
-    instruction: Stay on until Berger junction.
+    instruction: Take a taxi to Berger junction.
     cost_ngn: 200
     duration_min: 10
   - sequence: 4
     from: Berger
     to: Banex Plaza
     mode: taxi
+    transfer: true
     instruction: Take another taxi from Berger to Banex Plaza.
     cost_ngn: 300
     duration_min: 10

@@ -67,21 +67,26 @@ def format_corridor(
 ) -> str:
     """Render a corridor hit as numbered commuter steps.
 
-    `segments` is the (possibly clipped) list to show — pass exactly what the
-    user should follow from their join point onward.
-    Distance/duration/deep_link are optional and come from LocationIQ between
-    the user's actual coordinates and the corridor's destination, since the
-    corridor's segments don't carry geographic distance themselves.
+    Consecutive same-mode segments are collapsed into a single user-facing step
+    (one taxi ride that passes multiple anchors should not be three "stay on"
+    instructions). A run breaks when the mode changes OR when the next segment
+    has ``transfer=True`` (explicit vehicle change). The collapsed step uses
+    the LAST segment's ``instruction`` — contributors author each instruction
+    as a fresh boarding directive that names the run's destination.
     """
     dest_name = corridor.destination.name
     lines: list[str] = [f"To {dest_name}:"]
-    for i, s in enumerate(segments, start=1):
-        line = f"{i}. {s.instruction}"
+
+    for i, run in enumerate(_group_runs(segments), start=1):
+        last = run[-1]
+        line = f"{i}. {last.instruction}"
+        cost = sum(s.cost_ngn or 0 for s in run) or None
+        duration = sum(s.duration_min or 0 for s in run) or None
         extras: list[str] = []
-        if s.cost_ngn:
-            extras.append(f"₦{s.cost_ngn}")
-        if s.duration_min:
-            extras.append(f"~{s.duration_min} min")
+        if cost:
+            extras.append(f"₦{cost}")
+        if duration:
+            extras.append(f"~{duration} min")
         if extras:
             line += f" ({', '.join(extras)})"
         lines.append(line)
@@ -97,6 +102,21 @@ def format_corridor(
         lines.append("")
         lines.extend(footer)
     return "\n".join(lines)
+
+
+def _group_runs(segments: Sequence[Segment]) -> list[list[Segment]]:
+    """Split into runs of consecutive same-mode segments. A new run starts when
+    the mode changes or the next segment has ``transfer=True``."""
+    if not segments:
+        return []
+    runs: list[list[Segment]] = [[segments[0]]]
+    for s in segments[1:]:
+        prev = runs[-1][-1]
+        if s.mode == prev.mode and not s.transfer:
+            runs[-1].append(s)
+        else:
+            runs.append([s])
+    return runs
 
 
 def _format_km(distance_m: float) -> str:

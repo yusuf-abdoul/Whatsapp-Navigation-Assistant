@@ -97,8 +97,10 @@ async def test_anchor_upsert_merges_aliases_on_repeat(db, tmp_path):
     await load_file(db, second)
 
     anchors = (
-        await db.execute(select(Anchor).where(Anchor.city == "testcity", Anchor.name == "A"))
-    ).scalars().all()
+        (await db.execute(select(Anchor).where(Anchor.city == "testcity", Anchor.name == "A")))
+        .scalars()
+        .all()
+    )
     assert len(anchors) == 1, "anchor should have been upserted, not duplicated"
     assert "old-name" in anchors[0].aliases
     assert "new-name" in anchors[0].aliases

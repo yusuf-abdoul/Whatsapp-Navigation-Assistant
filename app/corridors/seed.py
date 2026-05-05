@@ -87,6 +87,7 @@ async def load_file(db: AsyncSession, path: Path) -> dict[str, int]:
                 to_anchor_id=anchors_by_name[s["to"]].id,
                 mode=s["mode"],
                 instruction=s["instruction"],
+                transfer=bool(s.get("transfer", False)),
                 cost_ngn=s.get("cost_ngn"),
                 duration_min=s.get("duration_min"),
                 time_windows=s.get("time_windows"),
@@ -119,9 +120,7 @@ async def _upsert_anchors(
     for raw in raw_anchors:
         name = raw["name"]
         existing = (
-            await db.execute(
-                select(Anchor).where(Anchor.name == name, Anchor.city == city)
-            )
+            await db.execute(select(Anchor).where(Anchor.name == name, Anchor.city == city))
         ).scalar_one_or_none()
 
         if existing is None:

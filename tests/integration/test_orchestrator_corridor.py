@@ -65,7 +65,9 @@ async def _seed_lugbe_to_banex() -> None:
     async with factory() as db:
         police = Anchor(
             name="Police Signpost",
-            lat=8.940, lon=7.360, city="abuja",
+            lat=8.940,
+            lon=7.360,
+            city="abuja",
             aliases=["police signboard"],
         )
         car_wash = Anchor(name="Car Wash", lat=8.970, lon=7.390, city="abuja", aliases=[])
@@ -73,7 +75,9 @@ async def _seed_lugbe_to_banex() -> None:
         berger = Anchor(name="Berger", lat=9.040, lon=7.460, city="abuja", aliases=[])
         banex = Anchor(
             name="Banex Plaza",
-            lat=9.075, lon=7.482, city="abuja",
+            lat=9.075,
+            lon=7.482,
+            city="abuja",
             aliases=["banex"],
         )
         db.add_all([police, car_wash, fed, berger, banex])
@@ -83,24 +87,50 @@ async def _seed_lugbe_to_banex() -> None:
         db.add(c)
         await db.flush()
 
-        db.add_all([
-            Segment(corridor_id=c.id, sequence=1, from_anchor_id=police.id,
-                    to_anchor_id=car_wash.id, mode="taxi",
-                    instruction="Take a taxi heading Berger.",
-                    cost_ngn=200, duration_min=5),
-            Segment(corridor_id=c.id, sequence=2, from_anchor_id=car_wash.id,
-                    to_anchor_id=fed.id, mode="taxi",
-                    instruction="Stay on past Federal Housing Bridge.",
-                    duration_min=5),
-            Segment(corridor_id=c.id, sequence=3, from_anchor_id=fed.id,
-                    to_anchor_id=berger.id, mode="taxi",
-                    instruction="Stay on until Berger junction.",
-                    cost_ngn=200, duration_min=10),
-            Segment(corridor_id=c.id, sequence=4, from_anchor_id=berger.id,
-                    to_anchor_id=banex.id, mode="taxi",
+        db.add_all(
+            [
+                Segment(
+                    corridor_id=c.id,
+                    sequence=1,
+                    from_anchor_id=police.id,
+                    to_anchor_id=car_wash.id,
+                    mode="taxi",
+                    instruction="Take a taxi to Berger junction.",
+                    cost_ngn=200,
+                    duration_min=5,
+                ),
+                Segment(
+                    corridor_id=c.id,
+                    sequence=2,
+                    from_anchor_id=car_wash.id,
+                    to_anchor_id=fed.id,
+                    mode="taxi",
+                    instruction="Take a taxi to Berger junction.",
+                    duration_min=5,
+                ),
+                Segment(
+                    corridor_id=c.id,
+                    sequence=3,
+                    from_anchor_id=fed.id,
+                    to_anchor_id=berger.id,
+                    mode="taxi",
+                    instruction="Take a taxi to Berger junction.",
+                    cost_ngn=200,
+                    duration_min=10,
+                ),
+                Segment(
+                    corridor_id=c.id,
+                    sequence=4,
+                    from_anchor_id=berger.id,
+                    to_anchor_id=banex.id,
+                    mode="taxi",
+                    transfer=True,
                     instruction="Take another taxi from Berger to Banex Plaza.",
-                    cost_ngn=300, duration_min=10),
-        ])
+                    cost_ngn=300,
+                    duration_min=10,
+                ),
+            ]
+        )
         await db.commit()
     await eng.dispose()
 
@@ -122,18 +152,21 @@ async def test_direction_with_known_corridor_replies_with_numbered_steps(fake_re
     # Mock LocationIQ route (used for the distance/ETA footer).
     with patch(
         "app.flows.orchestrator.route",
-        AsyncMock(return_value=Route(distance_m=18500.0, duration_s=1620.0, deep_link="https://maps")),
+        AsyncMock(
+            return_value=Route(distance_m=18500.0, duration_s=1620.0, deep_link="https://maps")
+        ),
     ):
         await handle(_msg(lat=8.941, lon=7.361), channel)
 
     assert channel.texts
     reply = channel.texts[-1][1]
-    # All four numbered corridor steps.
+    # Renderer collapses the 3 same-mode segments into one step, then segment 4
+    # (transfer=True) becomes its own step. So the user sees 2 numbered steps.
     assert "1." in reply
     assert "2." in reply
-    assert "3." in reply
-    assert "4." in reply
-    assert "taxi" in reply.lower()
+    assert "3." not in reply  # collapsed
+    assert "Berger junction" in reply  # from the run's last instruction
+    assert "Berger to Banex Plaza" in reply  # the transfer-marked segment
     assert "Banex Plaza" in reply
     # Footer with distance/ETA from LocationIQ.
     assert "km" in reply

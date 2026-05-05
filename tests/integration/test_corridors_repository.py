@@ -14,6 +14,7 @@ from app.corridors.models import Anchor, Corridor, Segment
 from app.corridors.repository import (
     _haversine_m,
     clip_segments_from_anchor,
+    find_anchor_by_name,
     find_corridors_by_destination,
     nearest_anchor_in_corridor,
 )
@@ -182,6 +183,38 @@ async def test_clip_segments_returns_empty_when_anchor_only_destination(db):
 
     # Banex is only a `to_anchor`, never a `from_anchor` — user can't "join here" and continue.
     assert clip_segments_from_anchor(c.segments, banex_id) == []
+
+
+async def test_find_anchor_by_exact_name(db):
+    db.add(_anchor("Police Signpost", lat=8.94, lon=7.36, aliases=["police signboard"]))
+    await db.flush()
+    found = await find_anchor_by_name(db, "Police Signpost")
+    assert found is not None
+    assert found.name == "Police Signpost"
+
+
+async def test_find_anchor_by_alias_case_insensitive(db):
+    db.add(_anchor("Police Signpost", lat=8.94, lon=7.36, aliases=["police signboard"]))
+    await db.flush()
+    found = await find_anchor_by_name(db, "POLICE SIGNBOARD")
+    assert found is not None
+    assert found.name == "Police Signpost"
+
+
+async def test_find_anchor_returns_none_for_unknown(db):
+    assert await find_anchor_by_name(db, "nowhere") is None
+
+
+async def test_find_anchor_scoped_by_city(db):
+    db.add(_anchor("Berger", city="abuja", lat=9.04, lon=7.46))
+    db.add(_anchor("Berger", city="lagos", lat=6.6, lon=3.3))
+    await db.flush()
+    abuja_hit = await find_anchor_by_name(db, "Berger", city="abuja")
+    assert abuja_hit is not None
+    assert abuja_hit.city == "abuja"
+    lagos_hit = await find_anchor_by_name(db, "Berger", city="lagos")
+    assert lagos_hit is not None
+    assert lagos_hit.city == "lagos"
 
 
 def test_haversine_zero_distance():

@@ -61,6 +61,26 @@ async def find_corridors_by_destination(
     return result.scalars().unique().all()
 
 
+async def find_anchor_by_name(
+    db: AsyncSession, query: str, *, city: str | None = None
+) -> Anchor | None:
+    """Look up an anchor by exact name or alias (case-insensitive).
+
+    Used when the user names a known place as their origin (e.g. typing "Police
+    Signpost") — we want to use the anchor's coordinates rather than send the
+    text through LocationIQ, which often returns nearby addresses instead.
+    """
+    needle = query.strip().lower()
+    if not needle:
+        return None
+    where = [or_(func.lower(Anchor.name) == needle, Anchor.aliases.contains([needle]))]
+    if city is not None:
+        where.append(Anchor.city == city)
+    stmt = select(Anchor).where(*where).limit(1)
+    result = await db.execute(stmt)
+    return result.scalar_one_or_none()
+
+
 async def nearest_anchor_in_corridor(
     db: AsyncSession, corridor_id: uuid.UUID, lat: float, lon: float
 ) -> tuple[Anchor, float] | None:
@@ -95,9 +115,7 @@ async def _corridor_anchors(db: AsyncSession, corridor_id: uuid.UUID) -> list[An
     return ordered
 
 
-def clip_segments_from_anchor(
-    segments: Sequence[Segment], anchor_id: uuid.UUID
-) -> list[Segment]:
+def clip_segments_from_anchor(segments: Sequence[Segment], anchor_id: uuid.UUID) -> list[Segment]:
     """Return segments from the first one whose `from_anchor_id` matches `anchor_id` onward.
 
     Mirrors the corridor model: a user joining at a mid-corridor anchor only needs the
@@ -114,8 +132,5 @@ def _haversine_m(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
     rlat1, rlat2 = math.radians(lat1), math.radians(lat2)
     dlat = math.radians(lat2 - lat1)
     dlon = math.radians(lon2 - lon1)
-    a = (
-        math.sin(dlat / 2) ** 2
-        + math.cos(rlat1) * math.cos(rlat2) * math.sin(dlon / 2) ** 2
-    )
+    a = math.sin(dlat / 2) ** 2 + math.cos(rlat1) * math.cos(rlat2) * math.sin(dlon / 2) ** 2
     return 2 * EARTH_RADIUS_M * math.asin(math.sqrt(a))

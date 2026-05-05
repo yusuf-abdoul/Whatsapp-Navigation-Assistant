@@ -3,9 +3,14 @@
 State machine (derived from session contents, no explicit flag):
   IDLE → DIRECTION(X) → corridor or geocode → destination set → AWAITING_ORIGIN
   AWAITING_ORIGIN + live location → render corridor or LocationIQ route → IDLE
-  AWAITING_ORIGIN + text(Y)       → geocode(Y) as origin → render → IDLE
+  AWAITING_ORIGIN + text(Y)       → resolve(Y) as origin → render → IDLE
+  IDLE + DIRECTION(X, from Y)     → resolve both, render directly (skip prompt)
   any state + new DIRECTION       → overwrite destination, re-enter AWAITING_ORIGIN
   any state + CANCEL              → clear session
+
+Origin resolution order: corridor anchor (by name/alias) → LocationIQ geocode.
+This catches "Police signpost" as a known anchor before letting LocationIQ
+guess at nearby addresses.
 
 Reply preference: a curated corridor (numbered commuter steps) when one exists
 for the destination AND the user is near a corridor anchor. Otherwise we fall
@@ -20,9 +25,10 @@ from sqlalchemy.exc import SQLAlchemyError
 from app.analytics.events import Event, emit
 from app.channel.base import ChannelAdapter, InboundMessage
 from app.corridors.db import session_factory
-from app.corridors.models import Corridor
+from app.corridors.models import Anchor, Corridor
 from app.corridors.repository import (
     clip_segments_from_anchor,
+    find_anchor_by_name,
     find_corridors_by_destination,
     nearest_anchor_in_corridor,
 )
@@ -45,6 +51,7 @@ _HELP_TEXT = (
     "Hi! I help you get around Abuja.\n\n"
     "Try:\n"
     "• 'How do I get to Jabi Lake Mall?'\n"
+    "• 'How about Banex from Police Signpost?'\n"
     "• 'Pharmacies near me'\n\n"
     "To share your location: tap the paperclip (📎) → Location → Send your current location.\n"
     "Say 'cancel' to start over."
@@ -101,7 +108,7 @@ async def handle(message: InboundMessage, channel: ChannelAdapter) -> None:
         return
 
     if result.intent == Intent.DIRECTION and result.query:
-        await _handle_direction(session, result.query, channel)
+        await _handle_direction(session, result.query, result.origin, channel)
         return
 
     if _awaiting_origin(session):
@@ -122,37 +129,53 @@ def _awaiting_origin(session: SessionState) -> bool:
     return session.destination is not None and session.origin is None
 
 
-async def _handle_direction(session: SessionState, query: str, channel: ChannelAdapter) -> None:
-    # Corridor first — if we have curated steps for this destination, use the
-    # corridor's destination anchor for lat/lon and skip LocationIQ geocoding.
+async def _handle_direction(
+    session: SessionState, query: str, origin_text: str | None, channel: ChannelAdapter
+) -> None:
+    """Set up the destination, then either prompt for origin or — if the user
+    already named one inline ("from Police Signpost") — route directly."""
+    destination = await _resolve_destination(session, query, channel)
+    if destination is None:
+        return  # caller already replied (ambiguity / not-found / error)
+
+    session.destination = destination
+    session.origin = None
+    session.last_intent = Intent.DIRECTION
+    await store.put(session)
+
+    if origin_text:
+        origin = await _resolve_origin_text(origin_text)
+        if origin is not None:
+            emit(Event.ORIGIN_RECEIVED_TEXT, user_id=session.user_id, source=origin.query)
+            await _route_and_reply(session, origin, channel)
+            return
+        # Origin text didn't resolve — prompt as if the user only gave a destination.
+
+    emit(Event.ORIGIN_REQUESTED, user_id=session.user_id)
+    await channel.send_text(
+        session.user_id,
+        f"Found {destination.display_name or query}. Now share your live location, "
+        "or tell me where you're starting from (e.g. 'I'm at Lugbe').",
+    )
+
+
+async def _resolve_destination(
+    session: SessionState, query: str, channel: ChannelAdapter
+) -> Place | None:
+    """Resolve a destination string to a Place. Replies on the channel for
+    failure cases (ambiguity, not-found, error) and returns None then."""
     corridor = await _lookup_corridor(query)
     if corridor is not None:
         anchor = corridor.destination
-        session.destination = Place(
-            query=query,
-            lat=anchor.lat,
-            lon=anchor.lon,
-            display_name=anchor.name,
-        )
-        session.origin = None
-        session.last_intent = Intent.DIRECTION
-        await store.put(session)
         emit(Event.DESTINATION_RECEIVED, user_id=session.user_id, query=query, source="corridor")
-        emit(Event.ORIGIN_REQUESTED, user_id=session.user_id)
-        await channel.send_text(
-            session.user_id,
-            f"Found {anchor.name}. Now share your live location, "
-            "or tell me where you're starting from (e.g. 'I'm at Lugbe').",
-        )
-        return
+        return Place(query=query, lat=anchor.lat, lon=anchor.lon, display_name=anchor.name)
 
-    # Fallback: LocationIQ geocode
     try:
         candidates = await geocode(query)
     except WNAError as e:
         emit(Event.GEOCODE_FAILURE, user_id=session.user_id, query=query, kind=e.kind.value)
         await channel.send_text(session.user_id, format_error(e.kind))
-        return
+        return None
 
     if not candidates:
         emit(Event.GEOCODE_FAILURE, user_id=session.user_id, query=query, kind="not_found")
@@ -160,7 +183,7 @@ async def _handle_direction(session: SessionState, query: str, channel: ChannelA
             session.user_id,
             f"I couldn't find '{query}' in Abuja. Try a fuller name or a nearby landmark.",
         )
-        return
+        return None
 
     if len(candidates) > 1:
         emit(
@@ -171,24 +194,39 @@ async def _handle_direction(session: SessionState, query: str, channel: ChannelA
         )
         prompt, options = format_ambiguity(query, candidates[:3])
         await channel.send_options(session.user_id, prompt, options)
-        return
+        return None
 
     place = candidates[0]
     emit(Event.GEOCODE_SUCCESS, user_id=session.user_id, query=query)
     emit(Event.DESTINATION_RECEIVED, user_id=session.user_id, query=query, source="locationiq")
-
-    session.destination = place
-    session.origin = None
-    session.last_intent = Intent.DIRECTION
-    await store.put(session)
-
-    emit(Event.ORIGIN_REQUESTED, user_id=session.user_id)
-    name = short_name(place.display_name) or query
-    await channel.send_text(
-        session.user_id,
-        f"Found {name}. Now share your live location, "
-        "or tell me where you're starting from (e.g. 'I'm at Lugbe').",
+    return Place(
+        query=query,
+        lat=place.lat,
+        lon=place.lon,
+        display_name=short_name(place.display_name) or place.display_name,
     )
+
+
+async def _resolve_origin_text(text: str) -> Place | None:
+    """Resolve a free-text origin to a Place.
+
+    Tries known corridor anchors first (so 'Police signpost' uses the anchor's
+    coordinates, not LocationIQ's nearest-address guess), then falls back to
+    LocationIQ geocoding. Returns None if both layers fail.
+    """
+    cleaned = _strip_origin_prefix(text)
+
+    anchor = await _lookup_anchor(cleaned)
+    if anchor is not None:
+        return Place(query=cleaned, lat=anchor.lat, lon=anchor.lon, display_name=anchor.name)
+
+    try:
+        candidates = await geocode(cleaned)
+    except WNAError:
+        return None
+    if not candidates:
+        return None
+    return candidates[0]
 
 
 async def _handle_location(
@@ -207,16 +245,9 @@ async def _handle_location(
 
 
 async def _handle_origin_text(session: SessionState, text: str, channel: ChannelAdapter) -> None:
-    cleaned = _strip_origin_prefix(text)
-
-    try:
-        candidates = await geocode(cleaned)
-    except WNAError as e:
-        emit(Event.GEOCODE_FAILURE, user_id=session.user_id, query=cleaned, kind=e.kind.value)
-        await channel.send_text(session.user_id, format_error(e.kind))
-        return
-
-    if not candidates:
+    origin = await _resolve_origin_text(text)
+    if origin is None:
+        cleaned = _strip_origin_prefix(text)
         emit(Event.GEOCODE_FAILURE, user_id=session.user_id, query=cleaned, kind="not_found")
         await channel.send_text(
             session.user_id,
@@ -225,8 +256,8 @@ async def _handle_origin_text(session: SessionState, text: str, channel: Channel
         )
         return
 
-    emit(Event.ORIGIN_RECEIVED_TEXT, user_id=session.user_id)
-    await _route_and_reply(session, candidates[0], channel)
+    emit(Event.ORIGIN_RECEIVED_TEXT, user_id=session.user_id, source=origin.query)
+    await _route_and_reply(session, origin, channel)
 
 
 async def _route_and_reply(session: SessionState, origin: Place, channel: ChannelAdapter) -> None:
@@ -238,11 +269,9 @@ async def _route_and_reply(session: SessionState, origin: Place, channel: Channe
         await channel.send_text(session.user_id, format_error(ErrorKind.GEOCODE_FAIL))
         return
 
-    # Try corridor reply first (curated commuter steps).
     if await _try_corridor_reply(session, origin, channel):
         return
 
-    # Fallback: LocationIQ-only route.
     try:
         r = await route(
             origin_lat=origin.lat,
@@ -270,12 +299,7 @@ async def _route_and_reply(session: SessionState, origin: Place, channel: Channe
 async def _try_corridor_reply(
     session: SessionState, origin: Place, channel: ChannelAdapter
 ) -> bool:
-    """Return True if a corridor reply was sent. False = caller should fall back.
-
-    Any DB error is logged and treated as "no corridor" so the LocationIQ
-    fallback still serves the user — the corridor layer is preference, not
-    requirement.
-    """
+    """Return True if a corridor reply was sent. False = caller should fall back."""
     dest = session.destination
     if dest is None or origin.lat is None or origin.lon is None:
         return False
@@ -283,9 +307,7 @@ async def _try_corridor_reply(
     try:
         factory = session_factory()
         async with factory() as db:
-            corridors = await find_corridors_by_destination(
-                db, dest.query, city=_DEFAULT_CITY
-            )
+            corridors = await find_corridors_by_destination(db, dest.query, city=_DEFAULT_CITY)
             if not corridors:
                 return False
             corridor = corridors[0]
@@ -304,7 +326,6 @@ async def _try_corridor_reply(
         log.warning("corridor_lookup_failed", error=str(e))
         return False
 
-    # LocationIQ for distance/ETA (corridor segments don't carry geographic distance).
     distance_m: float | None = None
     duration_s: float | None = None
     deep_link: str | None = None
@@ -320,7 +341,7 @@ async def _try_corridor_reply(
             duration_s = r.duration_s
             deep_link = r.deep_link
         except WNAError:
-            pass  # corridor reply still works without distance/ETA
+            pass
 
     emit(
         Event.ROUTE_SUCCESS,
@@ -354,6 +375,17 @@ async def _lookup_corridor(query: str) -> Corridor | None:
             return corridors[0] if corridors else None
     except SQLAlchemyError as e:
         log.warning("corridor_lookup_failed", query=query, error=str(e))
+        return None
+
+
+async def _lookup_anchor(name: str) -> Anchor | None:
+    """Return a known anchor by name/alias, or None on miss / DB error."""
+    try:
+        factory = session_factory()
+        async with factory() as db:
+            return await find_anchor_by_name(db, name, city=_DEFAULT_CITY)
+    except SQLAlchemyError as e:
+        log.warning("anchor_lookup_failed", name=name, error=str(e))
         return None
 
 

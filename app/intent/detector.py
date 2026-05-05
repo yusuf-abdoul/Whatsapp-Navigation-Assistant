@@ -9,9 +9,12 @@ from dataclasses import dataclass
 
 from app.intent.types import Intent
 
-_DIRECTION = re.compile(
-    r"^\s*(?:"
+# DIRECTION patterns. The "with-from" variants capture an origin too — used for
+# inline phrasings like "How about Banex from Police Signpost" so we can skip
+# the "share your live location" prompt when the user already named both ends.
+_DIRECTION_VERB = (
     r"how\s+(?:do\s+i|to|can\s+i)\s+get\s+to"
+    r"|how\s+about(?:\s+going\s+to)?"
     r"|directions?\s+to"
     r"|route\s+to"
     r"|where\s+is"
@@ -19,7 +22,20 @@ _DIRECTION = re.compile(
     r"|take\s+me\s+to"
     r"|go\s+to"
     r"|navigate\s+to"
-    r")\s+(.+?)\s*[?.!]*\s*$",
+)
+
+_DIRECTION_WITH_FROM = re.compile(
+    rf"^\s*(?:{_DIRECTION_VERB})\s+(.+?)\s+from\s+(.+?)\s*[?.!]*\s*$",
+    re.IGNORECASE,
+)
+
+_FROM_TO = re.compile(
+    r"^\s*from\s+(.+?)\s+to\s+(.+?)\s*[?.!]*\s*$",
+    re.IGNORECASE,
+)
+
+_DIRECTION = re.compile(
+    rf"^\s*(?:{_DIRECTION_VERB})\s+(.+?)\s*[?.!]*\s*$",
     re.IGNORECASE,
 )
 
@@ -45,6 +61,7 @@ _CANCEL = re.compile(
 class IntentResult:
     intent: Intent
     query: str | None = None
+    origin: str | None = None
 
 
 def detect(text: str) -> IntentResult:
@@ -54,6 +71,10 @@ def detect(text: str) -> IntentResult:
         return IntentResult(Intent.CANCEL)
     if _HELP.match(text):
         return IntentResult(Intent.HELP)
+    if m := _DIRECTION_WITH_FROM.match(text):
+        return IntentResult(Intent.DIRECTION, m.group(1).strip(), origin=m.group(2).strip())
+    if m := _FROM_TO.match(text):
+        return IntentResult(Intent.DIRECTION, m.group(2).strip(), origin=m.group(1).strip())
     if m := _DIRECTION.match(text):
         return IntentResult(Intent.DIRECTION, m.group(1).strip())
     if m := _NEARBY_PREFIX.match(text):

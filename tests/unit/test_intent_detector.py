@@ -54,3 +54,28 @@ def test_cancel_intent(text: str) -> None:
 @pytest.mark.parametrize("text", ["", "   ", "asdfgh", "random words"])
 def test_unknown_intent(text: str) -> None:
     assert detect(text).intent == Intent.UNKNOWN
+
+
+@pytest.mark.parametrize(
+    "text,dest,origin",
+    [
+        ("How about area 1 from police signpost", "area 1", "police signpost"),
+        ("How do I get to Banex from Lugbe", "Banex", "Lugbe"),
+        ("how about going to Jabi Lake Mall from Wuse 2", "Jabi Lake Mall", "Wuse 2"),
+        ("from Lugbe to Banex", "Banex", "Lugbe"),
+        ("directions to NNPC from Maitama", "NNPC", "Maitama"),
+        ("take me to Banex from Berger", "Banex", "Berger"),
+    ],
+)
+def test_direction_with_inline_origin(text: str, dest: str, origin: str) -> None:
+    result = detect(text)
+    assert result.intent == Intent.DIRECTION
+    assert result.query == dest
+    assert result.origin == origin
+
+
+def test_plain_direction_has_no_origin() -> None:
+    result = detect("How do I get to Banex")
+    assert result.intent == Intent.DIRECTION
+    assert result.query == "Banex"
+    assert result.origin is None
