@@ -1,0 +1,80 @@
+{% extends "base.html" %}
+
+{% block content %}
+<section class="max-w-6xl mx-auto px-6 pt-16 pb-20 sm:pt-24 sm:pb-28">
+  <div class="max-w-3xl">
+    <span class="inline-flex items-center gap-2 text-xs font-medium text-brand-700 bg-brand-50 rounded-full px-3 py-1">
+      <span class="w-1.5 h-1.5 rounded-full bg-brand-600"></span>
+      Now in beta — Abuja
+    </span>
+    <h1 class="mt-6 text-4xl sm:text-5xl font-semibold tracking-tight text-slate-900 leading-tight">
+      Directions across Abuja, in plain WhatsApp.
+    </h1>
+    <p class="mt-5 text-lg text-slate-600 leading-relaxed">
+      Built for commuters, not drivers. Ask "How do I get to Banex from Lugbe?" and get clear bike-, keke- and taxi-aware steps written by people who actually take the routes.
+    </p>
+    <div class="mt-8 flex flex-col sm:flex-row gap-3">
+      <a href="https://wa.me/14155238886" class="inline-flex items-center justify-center gap-2 bg-brand-600 hover:bg-brand-700 text-white font-medium px-5 py-3 rounded-md">
+        Try the bot on WhatsApp
+        <svg class="w-4 h-4" viewBox="0 0 20 20" fill="currentColor"><path d="M7 4a1 1 0 00-1 1v10a1 1 0 001 1h6a1 1 0 001-1V5a1 1 0 00-1-1H7zm5 9V6H8v7h4z"/></svg>
+      </a>
+      <a href="/signup" class="inline-flex items-center justify-center gap-2 bg-white text-slate-900 border border-slate-300 hover:border-slate-400 font-medium px-5 py-3 rounded-md">
+        Contribute a route
+      </a>
+    </div>
+  </div>
+</section>
+
+<section class="bg-slate-50 border-y border-slate-200">
+  <div class="max-w-6xl mx-auto px-6 py-16 grid sm:grid-cols-3 gap-8">
+    <div>
+      <div class="w-10 h-10 rounded-md bg-white border border-slate-200 grid place-items-center text-brand-600 font-semibold">1</div>
+      <h3 class="mt-4 font-semibold text-slate-900">Ask in chat</h3>
+      <p class="mt-2 text-sm text-slate-600 leading-relaxed">
+        Send a message like <span class="font-medium text-slate-800">"How do I get to Jabi Lake Mall from Wuse 2?"</span>. No app to install, no map to read.
+      </p>
+    </div>
+    <div>
+      <div class="w-10 h-10 rounded-md bg-white border border-slate-200 grid place-items-center text-brand-600 font-semibold">2</div>
+      <h3 class="mt-4 font-semibold text-slate-900">Get human-written steps</h3>
+      <p class="mt-2 text-sm text-slate-600 leading-relaxed">
+        Each route is written by someone who takes it: which bus stop, which keke, which bridge to cross. Practical over technical.
+      </p>
+    </div>
+    <div>
+      <div class="w-10 h-10 rounded-md bg-white border border-slate-200 grid place-items-center text-brand-600 font-semibold">3</div>
+      <h3 class="mt-4 font-semibold text-slate-900">Forwardable to drivers</h3>
+      <p class="mt-2 text-sm text-slate-600 leading-relaxed">
+        Replies are tight and shareable. Forward to a driver, send to a friend, follow it yourself.
+      </p>
+    </div>
+  </div>
+</section>
+
+<section class="max-w-6xl mx-auto px-6 py-20">
+  <div class="grid sm:grid-cols-2 gap-10 items-start">
+    <div>
+      <h2 class="text-2xl sm:text-3xl font-semibold tracking-tight text-slate-900">
+        Know a route well? Earn by sharing it.
+      </h2>
+      <p class="mt-4 text-slate-600 leading-relaxed">
+        Submit a corridor — origin to destination, the bus stops along the way, the modes you'd take. After review, your route helps thousands of riders. Approved contributors get airtime credits on the WhatsApp number you sign up with.
+      </p>
+      <div class="mt-6">
+        <a href="/signup" class="inline-flex items-center gap-2 bg-slate-900 hover:bg-slate-800 text-white font-medium px-5 py-3 rounded-md">
+          Sign up to contribute
+        </a>
+      </div>
+    </div>
+    <div class="bg-white border border-slate-200 rounded-lg p-6 shadow-sm">
+      <div class="text-xs font-medium text-slate-500 uppercase tracking-wide">Example reply</div>
+      <pre class="mt-3 whitespace-pre-wrap text-sm leading-relaxed text-slate-800">To Banex Plaza:
+1. Take a taxi to Berger junction. (₦400, ~20 min)
+2. Take another taxi from Berger to Banex Plaza. (₦300, ~10 min)
+
+About 18 km · ~27 min.
+All day; rush-hour traffic 7-9am and 5-7pm.</pre>
+    </div>
+  </div>
+</section>
+{% endblock %}

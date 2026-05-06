@@ -1,0 +1,41 @@
+{% extends "base.html" %}
+{% block title %}Contribute a route · WNA{% endblock %}
+
+{% block content %}
+<section class="max-w-3xl mx-auto px-6 py-16">
+  <h1 class="text-2xl sm:text-3xl font-semibold tracking-tight text-slate-900">Contribute a route</h1>
+  <p class="mt-3 text-slate-600 leading-relaxed">
+    Help thousands of commuters get where they're going. A route is one origin-to-destination
+    journey, broken into ordered steps — each with a transport mode (taxi, keke, bike, walk),
+    a landmark, and a short instruction.
+  </p>
+
+  <div class="mt-10 grid sm:grid-cols-3 gap-4 text-sm">
+    <div class="border border-slate-200 rounded-md p-4">
+      <div class="font-medium text-slate-900">1. Sign in</div>
+      <p class="mt-1 text-slate-600">Verify your WhatsApp number so we can credit you when your route is approved.</p>
+    </div>
+    <div class="border border-slate-200 rounded-md p-4">
+      <div class="font-medium text-slate-900">2. Map it out</div>
+      <p class="mt-1 text-slate-600">List the bus stops, junctions, and landmarks along the way. Add a step for each leg.</p>
+    </div>
+    <div class="border border-slate-200 rounded-md p-4">
+      <div class="font-medium text-slate-900">3. Submit for review</div>
+      <p class="mt-1 text-slate-600">Our reviewers verify the route. Once approved, your account is credited.</p>
+    </div>
+  </div>
+
+  <div class="mt-12 bg-amber-50 border border-amber-200 text-amber-900 rounded-md px-4 py-3 text-sm">
+    <strong class="font-medium">Coming soon.</strong> The submission form is in development. Sign up now and we'll let you know when contributions open.
+  </div>
+
+  <div class="mt-8 flex gap-3">
+    <a href="/signup" class="inline-flex items-center gap-2 bg-brand-600 hover:bg-brand-700 text-white font-medium px-5 py-2.5 rounded-md">
+      Sign up to contribute
+    </a>
+    <a href="/" class="inline-flex items-center gap-2 text-slate-700 hover:text-slate-900 font-medium px-5 py-2.5">
+      Back to home
+    </a>
+  </div>
+</section>
+{% endblock %}

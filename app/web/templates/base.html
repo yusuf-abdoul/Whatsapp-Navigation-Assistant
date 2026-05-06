@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>{% block title %}WNA — WhatsApp Navigation Assistant{% endblock %}</title>
+  <meta name="description" content="Get clear, landmark-first directions across Abuja in WhatsApp. Bus, keke, and bike-friendly. Built for commuters." />
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://unpkg.com/htmx.org@2.0.4" integrity="sha384-HGfztofotfshcF7+8n44JQL2oJmowVChPTg48S+jvZoztPfvwD79OC/LTtG6dMp+" crossorigin="anonymous"></script>
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          fontFamily: {
+            sans: ['Inter', 'system-ui', 'sans-serif'],
+          },
+          colors: {
+            brand: {
+              50: '#ecfdf5',
+              500: '#10b981',
+              600: '#059669',
+              700: '#047857',
+              900: '#064e3b',
+            },
+          },
+        },
+      },
+    };
+  </script>
+  <link rel="preconnect" href="https://rsms.me/" />
+  <link rel="stylesheet" href="https://rsms.me/inter/inter.css" />
+</head>
+<body class="bg-white text-slate-900 antialiased font-sans">
+  <header class="border-b border-slate-200">
+    <div class="max-w-6xl mx-auto px-6 py-4 flex items-center justify-between">
+      <a href="/" class="flex items-center gap-2 font-semibold tracking-tight">
+        <span class="inline-block w-7 h-7 rounded-md bg-brand-600 text-white grid place-items-center text-sm">W</span>
+        <span>WNA</span>
+      </a>
+      <nav class="hidden sm:flex items-center gap-6 text-sm text-slate-600">
+        <a href="/" class="hover:text-slate-900 {% if page == 'home' %}text-slate-900 font-medium{% endif %}">Home</a>
+        <a href="/submit" class="hover:text-slate-900 {% if page == 'submit' %}text-slate-900 font-medium{% endif %}">Contribute a route</a>
+        <a href="/login" class="hover:text-slate-900 {% if page == 'login' %}text-slate-900 font-medium{% endif %}">Sign in</a>
+        <a href="/signup" class="bg-brand-600 hover:bg-brand-700 text-white px-3 py-1.5 rounded-md font-medium">Get started</a>
+      </nav>
+      <a href="/signup" class="sm:hidden bg-brand-600 hover:bg-brand-700 text-white px-3 py-1.5 rounded-md text-sm font-medium">Get started</a>
+    </div>
+  </header>
+
+  <main>{% block content %}{% endblock %}</main>
+
+  <footer class="border-t border-slate-200 mt-24">
+    <div class="max-w-6xl mx-auto px-6 py-8 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 text-sm text-slate-500">
+      <div>WNA — WhatsApp Navigation Assistant. Built for commuters in Abuja.</div>
+      <div class="flex gap-4">
+        <a href="https://github.com/yusuf-abdoul/Whatsapp-Navigation-Assistant" class="hover:text-slate-700">GitHub</a>
+        <a href="/submit" class="hover:text-slate-700">Contribute</a>
+      </div>
+    </div>
+  </footer>
+</body>
+</html>

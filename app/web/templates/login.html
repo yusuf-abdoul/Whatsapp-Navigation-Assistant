@@ -1,0 +1,29 @@
+{% extends "base.html" %}
+{% block title %}Sign in · WNA{% endblock %}
+
+{% block content %}
+<section class="max-w-md mx-auto px-6 py-16">
+  <h1 class="text-2xl font-semibold tracking-tight text-slate-900">Sign in</h1>
+  <p class="mt-2 text-sm text-slate-600">
+    Enter the WhatsApp number you signed up with. We'll send a one-time code to verify.
+  </p>
+
+  <form class="mt-8 space-y-5" hx-post="/login" hx-swap="outerHTML" hx-disabled-elt="find button">
+    <div>
+      <label for="wa_number" class="block text-sm font-medium text-slate-700">WhatsApp number</label>
+      <input id="wa_number" name="wa_number" type="tel" required placeholder="+234 800 000 0000"
+             class="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-brand-500" />
+    </div>
+    <button type="submit" class="w-full bg-brand-600 hover:bg-brand-700 text-white font-medium py-2.5 rounded-md disabled:opacity-60 disabled:cursor-not-allowed">
+      Send verification code
+    </button>
+    <p class="text-xs text-slate-500 text-center">
+      New here? <a href="/signup" class="text-brand-700 hover:underline">Create an account</a>.
+    </p>
+  </form>
+
+  <div class="mt-10 text-xs text-slate-500 border-t border-slate-200 pt-6">
+    <strong class="text-slate-600">Coming soon:</strong> OTP verification + session cookie. This page is the entry point — auth flow lands in the next release.
+  </div>
+</section>
+{% endblock %}

@@ -3,18 +3,15 @@ from fastapi import BackgroundTasks, FastAPI, HTTPException, Request
 from app.channel import InboundRequest, get_channel
 from app.config import get_settings
 from app.flows.orchestrator import handle
+from app.web.routes import router as web_router
 
 app = FastAPI(title="WNA", version="0.1.0")
+app.include_router(web_router)
 
 
 @app.get("/health")
 async def health() -> dict[str, str]:
     return {"status": "ok", "env": get_settings().env}
-
-
-@app.get("/")
-async def root() -> dict[str, str]:
-    return {"service": "wna", "docs": "/docs"}
 
 
 async def _inbound(request: Request) -> InboundRequest:
