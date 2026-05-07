@@ -1,0 +1,27 @@
+{% set values = values if values is defined else {} %}
+<div id="auth-form">
+  {% if error is defined and error %}
+    <div class="mb-4 rounded-md bg-rose-50 border border-rose-200 text-rose-800 px-3 py-2 text-sm">
+      {{ error }}
+    </div>
+  {% endif %}
+  <form class="space-y-5" hx-post="/signup" hx-target="#auth-form" hx-swap="outerHTML" hx-disabled-elt="find button">
+    <div>
+      <label for="name" class="block text-sm font-medium text-slate-700">Name</label>
+      <input id="name" name="name" type="text" required value="{{ values.name or '' }}"
+             class="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-brand-500" />
+    </div>
+    <div>
+      <label for="wa_number" class="block text-sm font-medium text-slate-700">WhatsApp number</label>
+      <input id="wa_number" name="wa_number" type="tel" required placeholder="+234 800 000 0000" value="{{ values.wa_number or '' }}"
+             class="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-brand-500" />
+      <p class="mt-1 text-xs text-slate-500">Include the country code. We'll send a 6-digit code to verify.</p>
+    </div>
+    <button type="submit" class="w-full bg-brand-600 hover:bg-brand-700 text-white font-medium py-2.5 rounded-md disabled:opacity-60 disabled:cursor-not-allowed">
+      Send verification code
+    </button>
+    <p class="text-xs text-slate-500 text-center">
+      Already signed up? <a href="/login" class="text-brand-700 hover:underline">Sign in</a>.
+    </p>
+  </form>
+</div>

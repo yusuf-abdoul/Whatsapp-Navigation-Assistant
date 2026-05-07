@@ -32,6 +32,10 @@ class Settings(BaseSettings):
     rate_limit_per_day: int = Field(default=100, ge=1)
     identical_query_cooldown_seconds: int = Field(default=5, ge=0)
 
+    # Web session cookie. Override in production via env. Min 32 chars enforced.
+    session_secret: str = "dev-only-do-not-use-in-production-please-replace-me"
+    web_session_max_age_seconds: int = Field(default=60 * 60 * 24 * 14, ge=300)
+
 
 @lru_cache
 def get_settings() -> Settings:

@@ -1,0 +1,29 @@
+<div id="auth-form">
+  <div class="mb-5 rounded-md bg-brand-50 border border-brand-200 text-brand-900 px-3 py-2 text-sm">
+    Code sent to <span class="font-medium">{{ wa_number }}</span> on WhatsApp. It expires in 5 minutes.
+  </div>
+
+  {% if error is defined and error %}
+    <div class="mb-4 rounded-md bg-rose-50 border border-rose-200 text-rose-800 px-3 py-2 text-sm">
+      {{ error }}
+    </div>
+  {% endif %}
+
+  <form class="space-y-5" hx-post="/verify" hx-target="#auth-form" hx-swap="outerHTML" hx-disabled-elt="find button">
+    <input type="hidden" name="kind" value="{{ kind }}" />
+    <input type="hidden" name="wa_number" value="{{ wa_number }}" />
+    {% if name %}<input type="hidden" name="name" value="{{ name }}" />{% endif %}
+    <div>
+      <label for="code" class="block text-sm font-medium text-slate-700">6-digit code</label>
+      <input id="code" name="code" type="text" inputmode="numeric" autocomplete="one-time-code"
+             pattern="[0-9]{6}" maxlength="6" required autofocus
+             class="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 tracking-widest text-center text-lg focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-brand-500" />
+    </div>
+    <button type="submit" class="w-full bg-brand-600 hover:bg-brand-700 text-white font-medium py-2.5 rounded-md disabled:opacity-60 disabled:cursor-not-allowed">
+      Verify
+    </button>
+    <p class="text-xs text-slate-500 text-center">
+      Didn't get it? <a href="{% if kind == 'login' %}/login{% else %}/signup{% endif %}" class="text-brand-700 hover:underline">Start over</a> to resend.
+    </p>
+  </form>
+</div>

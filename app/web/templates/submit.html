@@ -3,7 +3,10 @@
 
 {% block content %}
 <section class="max-w-3xl mx-auto px-6 py-16">
-  <h1 class="text-2xl sm:text-3xl font-semibold tracking-tight text-slate-900">Contribute a route</h1>
+  {% if user %}
+    <p class="text-sm text-slate-500">Signed in as <span class="font-medium text-slate-700">{{ user.name or user.wa_number }}</span></p>
+  {% endif %}
+  <h1 class="mt-2 text-2xl sm:text-3xl font-semibold tracking-tight text-slate-900">Contribute a route</h1>
   <p class="mt-3 text-slate-600 leading-relaxed">
     Help thousands of commuters get where they're going. A route is one origin-to-destination
     journey, broken into ordered steps — each with a transport mode (taxi, keke, bike, walk),

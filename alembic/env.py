@@ -8,6 +8,7 @@ from sqlalchemy.ext.asyncio import async_engine_from_config
 from alembic import context
 from app.config import get_settings
 from app.corridors.models import Base
+from app.users import models as _users_models  # noqa: F401  (registers User on Base.metadata)
 
 config = context.config
 config.set_main_option("sqlalchemy.url", get_settings().database_url)

@@ -8,28 +8,8 @@
     We'll send a one-time code to your WhatsApp number to verify it.
   </p>
 
-  <form class="mt-8 space-y-5" hx-post="/signup" hx-swap="outerHTML" hx-disabled-elt="find button">
-    <div>
-      <label for="name" class="block text-sm font-medium text-slate-700">Name</label>
-      <input id="name" name="name" type="text" required
-             class="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-brand-500" />
-    </div>
-    <div>
-      <label for="wa_number" class="block text-sm font-medium text-slate-700">WhatsApp number</label>
-      <input id="wa_number" name="wa_number" type="tel" required placeholder="+234 800 000 0000"
-             class="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-brand-500" />
-      <p class="mt-1 text-xs text-slate-500">Include the country code. Used to send your verification code.</p>
-    </div>
-    <button type="submit" class="w-full bg-brand-600 hover:bg-brand-700 text-white font-medium py-2.5 rounded-md disabled:opacity-60 disabled:cursor-not-allowed">
-      Send verification code
-    </button>
-    <p class="text-xs text-slate-500 text-center">
-      Already signed up? <a href="/login" class="text-brand-700 hover:underline">Sign in</a>.
-    </p>
-  </form>
-
-  <div class="mt-10 text-xs text-slate-500 border-t border-slate-200 pt-6">
-    <strong class="text-slate-600">Coming soon:</strong> WhatsApp OTP verification, profile, route submission. This page is the entry point — auth flow lands in the next release.
+  <div class="mt-8">
+    {% include "_signup_form.html" %}
   </div>
 </section>
 {% endblock %}

@@ -21,4 +21,5 @@ In chronological order:
 5. [Phase 1c — Seed corridors](phase-1c-corridor-seed.md) — 2026-04-27
 6. [Phase 1d.1 — Live-test fixes](phase-1d.1-live-test-fixes.md) — 2026-05-05
 7. [Phase 2a — Landing page + web structure](phase-2a-landing-page.md) — 2026-05-06
+8. [Phase 2b — WhatsApp OTP auth](phase-2b-whatsapp-otp-auth.md) — 2026-05-07
 6. [Phase 1d — Orchestrator integration](phase-1d-orchestrator-integration.md) — 2026-04-30

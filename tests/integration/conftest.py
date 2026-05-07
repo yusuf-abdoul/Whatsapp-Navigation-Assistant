@@ -35,7 +35,9 @@ async def _clean_corridor_tables() -> AsyncIterator[None]:
 
     engine = create_async_engine(get_settings().database_url)
     async with engine.begin() as conn:
-        await conn.execute(text("TRUNCATE segments, corridors, anchors RESTART IDENTITY CASCADE"))
+        await conn.execute(
+            text("TRUNCATE segments, corridors, anchors, users RESTART IDENTITY CASCADE")
+        )
     await engine.dispose()
 
     yield

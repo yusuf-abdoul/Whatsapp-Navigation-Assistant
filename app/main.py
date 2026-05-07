@@ -1,11 +1,22 @@
 from fastapi import BackgroundTasks, FastAPI, HTTPException, Request
+from starlette.middleware.sessions import SessionMiddleware
 
 from app.channel import InboundRequest, get_channel
 from app.config import get_settings
 from app.flows.orchestrator import handle
 from app.web.routes import router as web_router
 
+_settings = get_settings()
+
 app = FastAPI(title="WNA", version="0.1.0")
+app.add_middleware(
+    SessionMiddleware,
+    secret_key=_settings.session_secret,
+    session_cookie="wna_session",
+    max_age=_settings.web_session_max_age_seconds,
+    https_only=_settings.env == "production",
+    same_site="lax",
+)
 app.include_router(web_router)
 
 
