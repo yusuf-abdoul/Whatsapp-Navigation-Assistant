@@ -38,7 +38,19 @@ async def current_user(request: Request) -> User | None:
 
 def login(request: Request, user: User) -> None:
     request.session["user_id"] = str(user.id)
+    # Mirror is_admin into the session so the nav can show/hide the Admin link
+    # without a DB lookup per request. Stale if the flag toggles mid-session —
+    # the user signs in again to pick it up.
+    request.session["is_admin"] = bool(user.is_admin)
 
 
 def logout(request: Request) -> None:
     request.session.clear()
+
+
+async def current_admin(request: Request) -> User | None:
+    """Return the logged-in user iff they have ``is_admin`` set, else None."""
+    user = await current_user(request)
+    if user is None or not user.is_admin:
+        return None
+    return user

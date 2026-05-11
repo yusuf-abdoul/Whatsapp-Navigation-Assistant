@@ -1,0 +1,107 @@
+{% extends "base.html" %}
+{% block title %}Review · {{ corridor.destination.name }}{% endblock %}
+
+{% block content %}
+<section class="max-w-4xl mx-auto px-6 py-10">
+
+  <a href="/admin" class="text-sm text-slate-500 hover:text-slate-700">← Back to queue</a>
+
+  <div class="mt-4 flex items-start justify-between gap-4">
+    <div>
+      <h1 class="text-2xl font-semibold tracking-tight text-slate-900">
+        {{ corridor.destination.name }}
+      </h1>
+      <p class="mt-1 text-sm text-slate-500">
+        {{ corridor.segments|length }} step{{ '' if corridor.segments|length == 1 else 's' }} ·
+        submitted {{ corridor.created_at.strftime("%Y-%m-%d %H:%M") }}
+        {% if submitter %}
+          · by <span class="font-medium text-slate-700">{{ submitter.name or submitter.wa_number }}</span>
+        {% endif %}
+      </p>
+      {% if corridor.applicability_notes %}
+        <p class="mt-2 text-sm text-slate-600 italic">{{ corridor.applicability_notes }}</p>
+      {% endif %}
+    </div>
+    <span class="inline-flex items-center gap-2 text-xs font-medium text-amber-800 bg-amber-50 border border-amber-200 rounded-full px-3 py-1">
+      Pending
+    </span>
+  </div>
+
+  {# --- Approve / Reject --- #}
+  <div class="mt-6 flex items-center gap-3">
+    <form method="post" action="/admin/corridors/{{ corridor.id }}/approve">
+      <button type="submit" class="bg-brand-600 hover:bg-brand-700 text-white font-medium px-5 py-2.5 rounded-md text-sm">
+        Approve
+      </button>
+    </form>
+    <form method="post" action="/admin/corridors/{{ corridor.id }}/reject">
+      <button type="submit" class="bg-white border border-slate-300 hover:border-rose-400 hover:text-rose-700 text-slate-700 font-medium px-5 py-2.5 rounded-md text-sm">
+        Reject
+      </button>
+    </form>
+  </div>
+
+  {# --- Steps --- #}
+  <section class="mt-10">
+    <h2 class="text-base font-semibold text-slate-900">Steps (ordered)</h2>
+    <ol class="mt-3 space-y-3">
+      {% for s in corridor.segments %}
+        <li class="rounded-md border border-slate-200 bg-white p-4 text-sm">
+          <div class="flex items-start justify-between gap-3">
+            <div>
+              <div class="text-xs font-medium text-slate-500">Step {{ loop.index }} · {{ s.mode }}{% if s.transfer %} · vehicle change{% endif %}</div>
+              <div class="mt-1 font-medium text-slate-900">{{ s.instruction }}</div>
+              <div class="mt-1 text-xs text-slate-500">
+                {{ s.from_anchor.name }} → {{ s.to_anchor.name }}
+              </div>
+            </div>
+            <div class="text-xs text-slate-500 text-right whitespace-nowrap">
+              {% if s.cost_ngn %}₦{{ s.cost_ngn }}{% endif %}
+              {% if s.duration_min %}<br/>~{{ s.duration_min }} min{% endif %}
+            </div>
+          </div>
+        </li>
+      {% endfor %}
+    </ol>
+  </section>
+
+  {# --- Anchors (editable coords) --- #}
+  <section class="mt-10">
+    <h2 class="text-base font-semibold text-slate-900">Anchors on this route</h2>
+    <p class="mt-1 text-xs text-slate-500">
+      The only place lat/lon can be corrected. Changes apply globally — every corridor that
+      references this anchor uses the same coordinates.
+    </p>
+
+    <div class="mt-3 space-y-3">
+      {% for a in anchors %}
+        <form method="post" action="/admin/anchors/{{ a.id }}"
+              class="rounded-md border border-slate-200 bg-white p-4 grid sm:grid-cols-12 gap-3 items-end">
+          <input type="hidden" name="return_to" value="/admin/corridors/{{ corridor.id }}" />
+          <div class="sm:col-span-4">
+            <div class="text-xs font-medium text-slate-500">Name</div>
+            <div class="mt-1 font-medium text-slate-900 text-sm">{{ a.name }}</div>
+            {% if a.aliases %}
+              <div class="mt-1 text-xs text-slate-500">aliases: {{ a.aliases|join(', ') }}</div>
+            {% endif %}
+          </div>
+          <label class="sm:col-span-3 block">
+            <span class="text-xs font-medium text-slate-500">Latitude</span>
+            <input name="lat" type="text" inputmode="decimal" value="{{ a.lat }}"
+                   class="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-brand-500" />
+          </label>
+          <label class="sm:col-span-3 block">
+            <span class="text-xs font-medium text-slate-500">Longitude</span>
+            <input name="lon" type="text" inputmode="decimal" value="{{ a.lon }}"
+                   class="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-brand-500" />
+          </label>
+          <button type="submit" class="sm:col-span-2 bg-slate-900 hover:bg-slate-800 text-white text-sm font-medium px-3 py-2 rounded-md">
+            Save coords
+          </button>
+        </form>
+      {% endfor %}
+    </div>
+  </section>
+
+</section>
+{% endblock %}

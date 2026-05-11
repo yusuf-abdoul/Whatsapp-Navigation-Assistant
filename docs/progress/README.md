@@ -23,4 +23,5 @@ In chronological order:
 7. [Phase 2a — Landing page + web structure](phase-2a-landing-page.md) — 2026-05-06
 8. [Phase 2b — WhatsApp OTP auth](phase-2b-whatsapp-otp-auth.md) — 2026-05-07
 9. [Phase 2c — Route submission form](phase-2c-route-submission.md) — 2026-05-07
+10. [Phase 2d — Admin review console](phase-2d-admin-review.md) — 2026-05-07
 6. [Phase 1d — Orchestrator integration](phase-1d-orchestrator-integration.md) — 2026-04-30

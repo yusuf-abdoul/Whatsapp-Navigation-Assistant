@@ -65,9 +65,7 @@ def test_cross_validate_requires_destination_in_anchors() -> None:
 
 def test_cross_validate_requires_segment_endpoints_in_anchors() -> None:
     payload = _valid_payload(
-        segments=[
-            SegmentInput(from_anchor="Ghost", to_anchor="B", mode="taxi", instruction="x")
-        ]
+        segments=[SegmentInput(from_anchor="Ghost", to_anchor="B", mode="taxi", instruction="x")]
     )
     with pytest.raises(SubmissionError, match="Ghost"):
         payload.cross_validate()
@@ -75,9 +73,7 @@ def test_cross_validate_requires_segment_endpoints_in_anchors() -> None:
 
 def test_cross_validate_rejects_self_loop_segment() -> None:
     payload = _valid_payload(
-        segments=[
-            SegmentInput(from_anchor="A", to_anchor="A", mode="taxi", instruction="x")
-        ]
+        segments=[SegmentInput(from_anchor="A", to_anchor="A", mode="taxi", instruction="x")]
     )
     with pytest.raises(SubmissionError, match="must differ"):
         payload.cross_validate()
@@ -161,9 +157,7 @@ async def test_create_pending_does_not_overwrite_existing_anchor_coords(db) -> N
     await create_pending(db, payload=payload_with_city, contributor_id=str(uuid.uuid4()))
 
     row = (
-        await db.execute(
-            select(Anchor).where(Anchor.name == "Berger", Anchor.city == "abuja")
-        )
+        await db.execute(select(Anchor).where(Anchor.name == "Berger", Anchor.city == "abuja"))
     ).scalar_one()
     # Coords preserved from the first contributor; aliases merged with the new submission.
     assert row.lat == pytest.approx(9.040)
@@ -181,21 +175,21 @@ async def test_create_pending_preserves_segment_order(db) -> None:
         ],
         destination="C",
         segments=[
-            SegmentInput(
-                from_anchor="A", to_anchor="B", mode="taxi", instruction="A->B"
-            ),
-            SegmentInput(
-                from_anchor="B", to_anchor="C", mode="keke", instruction="B->C"
-            ),
+            SegmentInput(from_anchor="A", to_anchor="B", mode="taxi", instruction="A->B"),
+            SegmentInput(from_anchor="B", to_anchor="C", mode="keke", instruction="B->C"),
         ],
     )
     corridor = await create_pending(db, payload=payload, contributor_id=contributor_id)
 
     segs = (
-        await db.execute(
-            select(Segment).where(Segment.corridor_id == corridor.id).order_by(Segment.sequence)
+        (
+            await db.execute(
+                select(Segment).where(Segment.corridor_id == corridor.id).order_by(Segment.sequence)
+            )
         )
-    ).scalars().all()
+        .scalars()
+        .all()
+    )
     assert [s.sequence for s in segs] == [1, 2]
     assert [s.instruction for s in segs] == ["A->B", "B->C"]
 

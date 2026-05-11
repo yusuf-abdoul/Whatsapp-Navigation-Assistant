@@ -146,10 +146,10 @@ def test_valid_submission_inserts_pending_corridor(fake_redis, captured_send, cl
                 assert c.status == "pending"
                 assert c.contributor_id is not None
                 segs = (
-                    await db.execute(
-                        select(Segment).where(Segment.corridor_id == c.id)
-                    )
-                ).scalars().all()
+                    (await db.execute(select(Segment).where(Segment.corridor_id == c.id)))
+                    .scalars()
+                    .all()
+                )
                 assert len(segs) == 1
                 assert segs[0].mode == "taxi"
                 assert segs[0].cost_ngn == 500

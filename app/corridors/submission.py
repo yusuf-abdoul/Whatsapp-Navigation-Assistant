@@ -163,14 +163,10 @@ async def _upsert_anchors(
     by_name: dict[str, Anchor] = {}
     for raw in raw_anchors:
         existing = (
-            await db.execute(
-                select(Anchor).where(Anchor.name == raw.name, Anchor.city == city)
-            )
+            await db.execute(select(Anchor).where(Anchor.name == raw.name, Anchor.city == city))
         ).scalar_one_or_none()
         if existing is None:
-            anchor = Anchor(
-                name=raw.name, lat=raw.lat, lon=raw.lon, city=city, aliases=raw.aliases
-            )
+            anchor = Anchor(name=raw.name, lat=raw.lat, lon=raw.lon, city=city, aliases=raw.aliases)
             db.add(anchor)
         else:
             # Coordinates intentionally NOT updated — reviewer-only path.

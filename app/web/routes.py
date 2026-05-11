@@ -16,22 +16,31 @@ Submission flow (Phase 2c):
   inserts a pending corridor with the user as contributor
 - GET /submit/anchor-row, /submit/segment-row — return blank rows for HTMX
   "+ Add" buttons
+
+Admin review (Phase 2d):
+- GET /admin — pending queue, gated by users.is_admin
+- GET /admin/corridors/{id} — one corridor's anchors + segments + submitter
+- POST /admin/corridors/{id}/approve, /reject — decide a pending corridor
+- POST /admin/anchors/{id} — fix an anchor's lat/lon
 """
 
 from __future__ import annotations
 
+import uuid
 from pathlib import Path
 from typing import Any
 
-from fastapi import APIRouter, Form, Request
+from fastapi import APIRouter, Form, HTTPException, Request
 from fastapi.responses import HTMLResponse, RedirectResponse, Response
 from fastapi.templating import Jinja2Templates
 from pydantic import ValidationError
+from sqlalchemy.exc import NoResultFound
 from starlette.datastructures import FormData
 
 from app.auth import otp, sender
 from app.auth import session as auth_session
 from app.auth.phone import normalize as normalize_phone
+from app.corridors import admin as admin_ops
 from app.corridors.db import session_factory
 from app.corridors.models import SEGMENT_MODES
 from app.corridors.submission import (
@@ -84,9 +93,7 @@ async def submit(request: Request) -> HTMLResponse:
 
 @router.get("/submit/anchor-row", response_class=HTMLResponse)
 async def submit_anchor_row(request: Request) -> HTMLResponse:
-    return templates.TemplateResponse(
-        request, "_anchor_row.html", {"row": _empty_anchor_row()}
-    )
+    return templates.TemplateResponse(request, "_anchor_row.html", {"row": _empty_anchor_row()})
 
 
 @router.get("/submit/segment-row", response_class=HTMLResponse)
@@ -250,6 +257,111 @@ async def submit_post(request: Request) -> Response:
     )
 
 
+# --- admin (Phase 2d) ---------------------------------------------------
+
+
+@router.get("/admin", response_class=HTMLResponse)
+async def admin_queue(request: Request) -> Response:
+    admin = await auth_session.current_admin(request)
+    if admin is None:
+        return RedirectResponse("/login", status_code=303)
+
+    factory = session_factory()
+    async with factory() as db:
+        pending = await admin_ops.list_pending(db)
+    return templates.TemplateResponse(
+        request,
+        "admin/queue.html",
+        {"page": "admin", "user": admin, "pending": list(pending)},
+    )
+
+
+@router.get("/admin/corridors/{corridor_id}", response_class=HTMLResponse)
+async def admin_corridor_detail(request: Request, corridor_id: uuid.UUID) -> Response:
+    admin = await auth_session.current_admin(request)
+    if admin is None:
+        return RedirectResponse("/login", status_code=303)
+
+    factory = session_factory()
+    async with factory() as db:
+        try:
+            corridor = await admin_ops.get_detail(db, corridor_id)
+        except NoResultFound:
+            raise HTTPException(status_code=404, detail="corridor not found") from None
+        submitter = await admin_ops.get_submitter(db, corridor)
+        # Deduped list of anchors that appear on this corridor.
+        anchors: dict[uuid.UUID, Any] = {}
+        for s in corridor.segments:
+            anchors[s.from_anchor.id] = s.from_anchor
+            anchors[s.to_anchor.id] = s.to_anchor
+        anchors[corridor.destination.id] = corridor.destination
+
+    return templates.TemplateResponse(
+        request,
+        "admin/detail.html",
+        {
+            "page": "admin",
+            "user": admin,
+            "corridor": corridor,
+            "submitter": submitter,
+            "anchors": list(anchors.values()),
+        },
+    )
+
+
+@router.post("/admin/corridors/{corridor_id}/approve")
+async def admin_approve(request: Request, corridor_id: uuid.UUID) -> Response:
+    admin = await auth_session.current_admin(request)
+    if admin is None:
+        return RedirectResponse("/login", status_code=303)
+    factory = session_factory()
+    async with factory() as db:
+        try:
+            await admin_ops.approve(db, corridor_id)
+            await db.commit()
+        except NoResultFound:
+            raise HTTPException(status_code=404, detail="corridor not found") from None
+    return RedirectResponse("/admin", status_code=303)
+
+
+@router.post("/admin/corridors/{corridor_id}/reject")
+async def admin_reject(request: Request, corridor_id: uuid.UUID) -> Response:
+    admin = await auth_session.current_admin(request)
+    if admin is None:
+        return RedirectResponse("/login", status_code=303)
+    factory = session_factory()
+    async with factory() as db:
+        try:
+            await admin_ops.reject(db, corridor_id)
+            await db.commit()
+        except NoResultFound:
+            raise HTTPException(status_code=404, detail="corridor not found") from None
+    return RedirectResponse("/admin", status_code=303)
+
+
+@router.post("/admin/anchors/{anchor_id}")
+async def admin_update_anchor(
+    request: Request,
+    anchor_id: uuid.UUID,
+    lat: float = Form(...),
+    lon: float = Form(...),
+    return_to: str = Form("/admin"),
+) -> Response:
+    admin = await auth_session.current_admin(request)
+    if admin is None:
+        return RedirectResponse("/login", status_code=303)
+    if not (-90 <= lat <= 90) or not (-180 <= lon <= 180):
+        raise HTTPException(status_code=400, detail="lat/lon out of range")
+    factory = session_factory()
+    async with factory() as db:
+        try:
+            await admin_ops.update_anchor_coords(db, anchor_id, lat=lat, lon=lon)
+            await db.commit()
+        except NoResultFound:
+            raise HTTPException(status_code=404, detail="anchor not found") from None
+    return RedirectResponse(return_to, status_code=303)
+
+
 # --- helpers -------------------------------------------------------------
 
 
@@ -361,9 +473,7 @@ def _collect_submission_form(form: FormData) -> dict[str, Any]:
     }
 
 
-def _submit_error(
-    request: Request, user: Any, raw: dict[str, Any], message: str
-) -> HTMLResponse:
+def _submit_error(request: Request, user: Any, raw: dict[str, Any], message: str) -> HTMLResponse:
     return templates.TemplateResponse(
         request,
         "submit.html",

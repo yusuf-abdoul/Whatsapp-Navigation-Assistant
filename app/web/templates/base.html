@@ -41,6 +41,12 @@
         <a href="/" class="hover:text-slate-900 {% if page == 'home' %}text-slate-900 font-medium{% endif %}">Home</a>
         <a href="/submit" class="hover:text-slate-900 {% if page == 'submit' %}text-slate-900 font-medium{% endif %}">Contribute a route</a>
         {% if request.session.get('user_id') %}
+          {% if request.session.get('is_admin') %}
+            <a href="/admin"
+               class="hover:text-slate-900 {% if page == 'admin' %}text-slate-900 font-medium{% endif %}">
+              Admin
+            </a>
+          {% endif %}
           <form action="/logout" method="post" class="inline">
             <button type="submit" class="text-slate-600 hover:text-slate-900">Sign out</button>
           </form>
