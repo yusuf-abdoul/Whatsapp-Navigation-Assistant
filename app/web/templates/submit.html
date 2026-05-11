@@ -2,43 +2,150 @@
 {% block title %}Contribute a route · WNA{% endblock %}
 
 {% block content %}
-<section class="max-w-3xl mx-auto px-6 py-16">
-  {% if user %}
-    <p class="text-sm text-slate-500">Signed in as <span class="font-medium text-slate-700">{{ user.name or user.wa_number }}</span></p>
-  {% endif %}
-  <h1 class="mt-2 text-2xl sm:text-3xl font-semibold tracking-tight text-slate-900">Contribute a route</h1>
+<section class="max-w-3xl mx-auto px-6 py-12">
+
+{# --- Not signed in: show a CTA, no form. -------------------------------- #}
+{% if not user %}
+
+  <h1 class="text-2xl sm:text-3xl font-semibold tracking-tight text-slate-900">
+    Contribute a route
+  </h1>
   <p class="mt-3 text-slate-600 leading-relaxed">
-    Help thousands of commuters get where they're going. A route is one origin-to-destination
-    journey, broken into ordered steps — each with a transport mode (taxi, keke, bike, walk),
-    a landmark, and a short instruction.
+    Help thousands of commuters get where they're going. Sign in to submit a route — once
+    approved, your contribution starts serving real queries and your WhatsApp number is credited.
   </p>
-
-  <div class="mt-10 grid sm:grid-cols-3 gap-4 text-sm">
-    <div class="border border-slate-200 rounded-md p-4">
-      <div class="font-medium text-slate-900">1. Sign in</div>
-      <p class="mt-1 text-slate-600">Verify your WhatsApp number so we can credit you when your route is approved.</p>
-    </div>
-    <div class="border border-slate-200 rounded-md p-4">
-      <div class="font-medium text-slate-900">2. Map it out</div>
-      <p class="mt-1 text-slate-600">List the bus stops, junctions, and landmarks along the way. Add a step for each leg.</p>
-    </div>
-    <div class="border border-slate-200 rounded-md p-4">
-      <div class="font-medium text-slate-900">3. Submit for review</div>
-      <p class="mt-1 text-slate-600">Our reviewers verify the route. Once approved, your account is credited.</p>
-    </div>
-  </div>
-
-  <div class="mt-12 bg-amber-50 border border-amber-200 text-amber-900 rounded-md px-4 py-3 text-sm">
-    <strong class="font-medium">Coming soon.</strong> The submission form is in development. Sign up now and we'll let you know when contributions open.
-  </div>
-
   <div class="mt-8 flex gap-3">
-    <a href="/signup" class="inline-flex items-center gap-2 bg-brand-600 hover:bg-brand-700 text-white font-medium px-5 py-2.5 rounded-md">
+    <a href="/signup"
+       class="inline-flex items-center gap-2 bg-brand-600 hover:bg-brand-700 text-white font-medium px-5 py-2.5 rounded-md">
       Sign up to contribute
     </a>
-    <a href="/" class="inline-flex items-center gap-2 text-slate-700 hover:text-slate-900 font-medium px-5 py-2.5">
-      Back to home
+    <a href="/login"
+       class="inline-flex items-center gap-2 text-slate-700 hover:text-slate-900 font-medium px-5 py-2.5">
+      Already signed up? Sign in
     </a>
   </div>
+
+{# --- Signed in: full submission form. ---------------------------------- #}
+{% else %}
+
+  <p class="text-sm text-slate-500">
+    Signed in as
+    <span class="font-medium text-slate-700">{{ user.name or user.wa_number }}</span>
+  </p>
+  <h1 class="mt-2 text-2xl sm:text-3xl font-semibold tracking-tight text-slate-900">
+    Submit a route
+  </h1>
+
+  <div class="mt-3 text-sm text-slate-600 leading-relaxed space-y-2">
+    <p>
+      A route ends at one <strong>destination anchor</strong> and is made of ordered
+      <strong>steps</strong>. Each step is one leg of the journey with a transport mode
+      and a short boarding instruction.
+    </p>
+    <p>
+      List every named place along the way as an <strong>anchor</strong> (bus stop, junction,
+      landmark) below — even ones in the middle. The reviewer will use them to clip the
+      route for users joining partway.
+    </p>
+  </div>
+
+  {% if error %}
+    <div class="mt-6 rounded-md bg-rose-50 border border-rose-200 text-rose-800 px-4 py-3 text-sm whitespace-pre-line">
+      {{ error }}
+    </div>
+  {% endif %}
+
+  <form class="mt-8 space-y-12" method="post" action="/submit">
+
+    {# ------- Section 1: basics ------- #}
+    <section class="space-y-4">
+      <h2 class="text-base font-semibold text-slate-900">1. Basics</h2>
+
+      <label class="block">
+        <span class="text-sm font-medium text-slate-700">City</span>
+        <input name="city" type="text" required value="{{ form.city }}"
+               class="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-brand-500" />
+      </label>
+
+      <label class="block">
+        <span class="text-sm font-medium text-slate-700">Destination anchor</span>
+        <input name="destination" type="text" required value="{{ form.destination }}"
+               placeholder="Type the exact name you'll use in the anchors list below"
+               class="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-brand-500" />
+      </label>
+
+      <label class="block">
+        <span class="text-sm font-medium text-slate-700">
+          Applicability notes <span class="text-slate-400 font-normal">(optional)</span>
+        </span>
+        <input name="applicability_notes" type="text" value="{{ form.applicability_notes }}"
+               placeholder="e.g. All day. Rush-hour traffic 7-9am and 5-7pm."
+               class="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-brand-500" />
+      </label>
+    </section>
+
+    {# ------- Section 2: anchors ------- #}
+    <section class="space-y-3">
+      <div class="flex items-center justify-between">
+        <h2 class="text-base font-semibold text-slate-900">2. Anchors</h2>
+        <button type="button"
+                hx-get="/submit/anchor-row"
+                hx-target="#anchor-rows"
+                hx-swap="beforeend"
+                class="text-sm text-brand-700 hover:underline">
+          + Add anchor
+        </button>
+      </div>
+
+      <p class="text-xs text-slate-500">
+        Each named place along the route gets one card. Latitude and longitude are decimal
+        degrees — look them up on Google Maps (right-click → "What's here?"). Aliases are
+        local nicknames separated by commas.
+      </p>
+
+      <div id="anchor-rows" class="space-y-3">
+        {% for row in form.anchors %}
+          {% include "_anchor_row.html" %}
+        {% endfor %}
+      </div>
+    </section>
+
+    {# ------- Section 3: segments ------- #}
+    <section class="space-y-3">
+      <div class="flex items-center justify-between">
+        <h2 class="text-base font-semibold text-slate-900">3. Steps</h2>
+        <button type="button"
+                hx-get="/submit/segment-row"
+                hx-target="#segment-rows"
+                hx-swap="beforeend"
+                class="text-sm text-brand-700 hover:underline">
+          + Add step
+        </button>
+      </div>
+
+      <p class="text-xs text-slate-500">
+        Order matters — these run head to toe. The "From" and "To" must exactly match names in
+        the anchors section. If the rider stays on the same vehicle past an intermediate
+        anchor, leave <em>vehicle change</em> on "No" — the renderer collapses those into one
+        user-facing step.
+      </p>
+
+      <div id="segment-rows" class="space-y-3">
+        {% for row in form.segments %}
+          {% include "_segment_row.html" %}
+        {% endfor %}
+      </div>
+    </section>
+
+    <div class="flex items-center justify-end gap-3 pt-4 border-t border-slate-200">
+      <a href="/" class="text-sm text-slate-600 hover:text-slate-900">Cancel</a>
+      <button type="submit"
+              class="bg-brand-600 hover:bg-brand-700 text-white font-medium px-5 py-2.5 rounded-md">
+        Submit for review
+      </button>
+    </div>
+
+  </form>
+{% endif %}
 </section>
 {% endblock %}

@@ -9,20 +9,38 @@ Auth flow (Phase 2b):
 - POST /verify — checks OTP, creates user (signup-intent), sets session cookie,
   HX-Redirects to /submit
 - POST /logout — clears session, returns to /
+
+Submission flow (Phase 2c):
+- GET /submit — form (auth-gated; signed-out users see a CTA)
+- POST /submit — parses parallel-list form fields, validates via Pydantic,
+  inserts a pending corridor with the user as contributor
+- GET /submit/anchor-row, /submit/segment-row — return blank rows for HTMX
+  "+ Add" buttons
 """
 
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Any
 
 from fastapi import APIRouter, Form, Request
 from fastapi.responses import HTMLResponse, RedirectResponse, Response
 from fastapi.templating import Jinja2Templates
+from pydantic import ValidationError
+from starlette.datastructures import FormData
 
 from app.auth import otp, sender
 from app.auth import session as auth_session
 from app.auth.phone import normalize as normalize_phone
 from app.corridors.db import session_factory
+from app.corridors.models import SEGMENT_MODES
+from app.corridors.submission import (
+    AnchorInput,
+    CorridorSubmission,
+    SegmentInput,
+    SubmissionError,
+    create_pending,
+)
 from app.users import repository as users_repo
 
 router = APIRouter(include_in_schema=False)
@@ -52,7 +70,30 @@ async def signup(request: Request) -> HTMLResponse:
 @router.get("/submit", response_class=HTMLResponse)
 async def submit(request: Request) -> HTMLResponse:
     user = await auth_session.current_user(request)
-    return templates.TemplateResponse(request, "submit.html", {"page": "submit", "user": user})
+    return templates.TemplateResponse(
+        request,
+        "submit.html",
+        {
+            "page": "submit",
+            "user": user,
+            "modes": SEGMENT_MODES,
+            "form": _empty_form_state(),
+        },
+    )
+
+
+@router.get("/submit/anchor-row", response_class=HTMLResponse)
+async def submit_anchor_row(request: Request) -> HTMLResponse:
+    return templates.TemplateResponse(
+        request, "_anchor_row.html", {"row": _empty_anchor_row()}
+    )
+
+
+@router.get("/submit/segment-row", response_class=HTMLResponse)
+async def submit_segment_row(request: Request) -> HTMLResponse:
+    return templates.TemplateResponse(
+        request, "_segment_row.html", {"row": _empty_segment_row(), "modes": SEGMENT_MODES}
+    )
 
 
 # --- POST handlers (HTMX form submissions) ------------------------------
@@ -168,6 +209,47 @@ async def logout_post(request: Request) -> RedirectResponse:
     return RedirectResponse("/", status_code=303)
 
 
+@router.post("/submit", response_class=HTMLResponse)
+async def submit_post(request: Request) -> Response:
+    user = await auth_session.current_user(request)
+    if user is None:
+        return RedirectResponse("/login", status_code=303)
+
+    form = await request.form()
+    raw = _collect_submission_form(form)
+
+    # Build typed payload. Pydantic catches per-field errors; cross_validate
+    # catches inter-field rules (destination must be in anchors, etc.).
+    try:
+        payload = CorridorSubmission(
+            city=raw["city"],
+            destination=raw["destination"],
+            applicability_notes=raw.get("applicability_notes") or None,
+            anchors=[AnchorInput(**a) for a in raw["anchors"]],
+            segments=[SegmentInput(**s) for s in raw["segments"]],
+        )
+    except ValidationError as e:
+        return _submit_error(request, user, raw, _summarize_pydantic(e))
+
+    try:
+        factory = session_factory()
+        async with factory() as db:
+            corridor = await create_pending(db, payload=payload, contributor_id=str(user.id))
+            await db.commit()
+    except SubmissionError as e:
+        return _submit_error(request, user, raw, str(e))
+
+    return templates.TemplateResponse(
+        request,
+        "_submit_success.html",
+        {
+            "corridor_id": str(corridor.id),
+            "destination": payload.destination,
+            "segment_count": len(payload.segments),
+        },
+    )
+
+
 # --- helpers -------------------------------------------------------------
 
 
@@ -189,3 +271,145 @@ def _verify_error(
         "_verify_form.html",
         {"kind": kind, "wa_number": wa_number, "name": name, "error": message},
     )
+
+
+# --- submission form helpers --------------------------------------------
+
+
+def _empty_anchor_row() -> dict[str, str]:
+    return {"name": "", "lat": "", "lon": "", "aliases": ""}
+
+
+def _empty_segment_row() -> dict[str, str]:
+    return {
+        "from_anchor": "",
+        "to_anchor": "",
+        "mode": "taxi",
+        "instruction": "",
+        "transfer": "false",
+        "cost_ngn": "",
+        "duration_min": "",
+    }
+
+
+def _empty_form_state() -> dict[str, object]:
+    return {
+        "city": "abuja",
+        "destination": "",
+        "applicability_notes": "",
+        "anchors": [_empty_anchor_row(), _empty_anchor_row()],
+        "segments": [_empty_segment_row()],
+    }
+
+
+def _collect_submission_form(form: FormData) -> dict[str, Any]:
+    """Turn parallel form arrays into the nested shape the schema expects.
+
+    Empty rows (anchor with no name; segment with no instruction) are dropped
+    silently so contributors can leave blank "+ Add" rows behind.
+    """
+    anchor_names = form.getlist("anchor_name")
+    anchor_lats = form.getlist("anchor_lat")
+    anchor_lons = form.getlist("anchor_lon")
+    anchor_aliases = form.getlist("anchor_aliases")
+
+    anchors: list[dict[str, str]] = []
+    for i, name in enumerate(anchor_names):
+        if not str(name).strip():
+            continue
+        anchors.append(
+            {
+                "name": str(name),
+                "lat": str(anchor_lats[i]) if i < len(anchor_lats) else "",
+                "lon": str(anchor_lons[i]) if i < len(anchor_lons) else "",
+                "aliases": str(anchor_aliases[i]) if i < len(anchor_aliases) else "",
+            }
+        )
+
+    seg_from = form.getlist("seg_from")
+    seg_to = form.getlist("seg_to")
+    seg_mode = form.getlist("seg_mode")
+    seg_instruction = form.getlist("seg_instruction")
+    seg_transfer = form.getlist("seg_transfer")
+    seg_cost = form.getlist("seg_cost_ngn")
+    seg_duration = form.getlist("seg_duration_min")
+
+    segments: list[dict[str, object]] = []
+    for i, instr in enumerate(seg_instruction):
+        if not str(instr).strip():
+            continue
+        cost = str(seg_cost[i] if i < len(seg_cost) else "").strip()
+        duration = str(seg_duration[i] if i < len(seg_duration) else "").strip()
+        segments.append(
+            {
+                "from_anchor": str(seg_from[i]) if i < len(seg_from) else "",
+                "to_anchor": str(seg_to[i]) if i < len(seg_to) else "",
+                "mode": str(seg_mode[i]) if i < len(seg_mode) else "",
+                "instruction": str(instr),
+                "transfer": (str(seg_transfer[i]) if i < len(seg_transfer) else "false") == "true",
+                "cost_ngn": int(cost) if cost else None,
+                "duration_min": int(duration) if duration else None,
+            }
+        )
+
+    return {
+        "city": str(form.get("city") or "").strip(),
+        "destination": str(form.get("destination") or "").strip(),
+        "applicability_notes": str(form.get("applicability_notes") or "").strip(),
+        "anchors": anchors,
+        "segments": segments,
+    }
+
+
+def _submit_error(
+    request: Request, user: Any, raw: dict[str, Any], message: str
+) -> HTMLResponse:
+    return templates.TemplateResponse(
+        request,
+        "submit.html",
+        {
+            "page": "submit",
+            "user": user,
+            "modes": SEGMENT_MODES,
+            "form": _form_state_from_raw(raw),
+            "error": message,
+        },
+    )
+
+
+def _form_state_from_raw(raw: dict[str, Any]) -> dict[str, Any]:
+    """Re-populate the form with the user's submitted values after a validation error."""
+    anchors = list(raw.get("anchors") or [])
+    if not anchors:
+        anchors = [_empty_anchor_row(), _empty_anchor_row()]
+    segments_in = list(raw.get("segments") or [])
+    segments: list[dict[str, str]] = []
+    for s in segments_in:
+        segments.append(
+            {
+                "from_anchor": str(s.get("from_anchor") or ""),
+                "to_anchor": str(s.get("to_anchor") or ""),
+                "mode": str(s.get("mode") or "taxi"),
+                "instruction": str(s.get("instruction") or ""),
+                "transfer": "true" if s.get("transfer") else "false",
+                "cost_ngn": "" if s.get("cost_ngn") is None else str(s.get("cost_ngn")),
+                "duration_min": "" if s.get("duration_min") is None else str(s.get("duration_min")),
+            }
+        )
+    if not segments:
+        segments = [_empty_segment_row()]
+    return {
+        "city": str(raw.get("city") or "abuja"),
+        "destination": str(raw.get("destination") or ""),
+        "applicability_notes": str(raw.get("applicability_notes") or ""),
+        "anchors": anchors,
+        "segments": segments,
+    }
+
+
+def _summarize_pydantic(err: ValidationError) -> str:
+    lines: list[str] = []
+    for e in err.errors():
+        loc = ".".join(str(p) for p in e["loc"])
+        lines.append(f"{loc}: {e['msg']}")
+    return "\n".join(lines)
