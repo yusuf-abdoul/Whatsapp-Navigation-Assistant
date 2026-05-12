@@ -51,6 +51,19 @@
       </span>
     </label>
 
+    <label class="block sm:col-span-2">
+      <span class="text-sm font-medium text-slate-700">
+        Passes through <span class="text-slate-400 font-normal">(optional)</span>
+      </span>
+      <input name="seg_passthroughs" type="text" value="{{ row.passthroughs }}"
+             placeholder="comma-separated anchor names this vehicle stops or could pick up at, e.g. Federal Housing, Shoprite"
+             class="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-brand-500" />
+      <span class="mt-1 block text-xs text-slate-500">
+        Each name must also appear in your Anchors list above. Lets riders boarding at these
+        spots match this same step.
+      </span>
+    </label>
+
     <label class="block">
       <span class="text-sm font-medium text-slate-700">Cost <span class="text-slate-400 font-normal">(optional, ₦)</span></span>
       <input name="seg_cost_ngn" type="number" min="0" value="{{ row.cost_ngn }}"

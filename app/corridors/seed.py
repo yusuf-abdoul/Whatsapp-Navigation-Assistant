@@ -17,6 +17,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 import sys
+import uuid
 from pathlib import Path
 from typing import Any
 
@@ -79,6 +80,16 @@ async def load_file(db: AsyncSession, path: Path) -> dict[str, int]:
             raise SeedError(f"{path}: segment 'from' anchor '{s['from']}' not declared")
         if s["to"] not in anchors_by_name:
             raise SeedError(f"{path}: segment 'to' anchor '{s['to']}' not declared")
+
+        passthroughs = s.get("passes_through") or []
+        passthrough_ids: list[uuid.UUID] = []
+        for name in passthroughs:
+            if name not in anchors_by_name:
+                raise SeedError(
+                    f"{path}: segment passthrough '{name}' not declared in anchors"
+                )
+            passthrough_ids.append(anchors_by_name[name].id)
+
         db.add(
             Segment(
                 corridor_id=corridor.id,
@@ -92,6 +103,7 @@ async def load_file(db: AsyncSession, path: Path) -> dict[str, int]:
                 duration_min=s.get("duration_min"),
                 time_windows=s.get("time_windows"),
                 availability_notes=s.get("availability_notes"),
+                passthrough_anchor_ids=passthrough_ids,
             )
         )
     await db.flush()

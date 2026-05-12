@@ -118,14 +118,21 @@ async def nearest_anchor_in_corridor(
 
 
 async def _corridor_anchors(db: AsyncSession, corridor_id: uuid.UUID) -> list[Anchor]:
-    """All distinct anchors that appear on the corridor's segments, in order of first appearance."""
+    """All distinct anchors that act as join points for the corridor, in order
+    of first appearance.
+
+    Join points = segment endpoints (from/to) PLUS any passthrough anchors on
+    a segment. A passthrough is a named place the vehicle physically passes
+    through on a leg — a rider near it can board the same vehicle and follow
+    the same instruction as if they'd boarded at the leg's `from`.
+    """
     stmt = (
         select(Segment)
         .where(Segment.corridor_id == corridor_id)
         .order_by(Segment.sequence)
         .options(selectinload(Segment.from_anchor), selectinload(Segment.to_anchor))
     )
-    segments = (await db.execute(stmt)).scalars().all()
+    segments = list((await db.execute(stmt)).scalars().all())
 
     seen: set[uuid.UUID] = set()
     ordered: list[Anchor] = []
@@ -134,18 +141,35 @@ async def _corridor_anchors(db: AsyncSession, corridor_id: uuid.UUID) -> list[An
             if anchor.id not in seen:
                 seen.add(anchor.id)
                 ordered.append(anchor)
+
+    # Bulk-load passthrough anchors across all segments in one query so we
+    # don't N+1 over the segment list.
+    passthrough_ids: set[uuid.UUID] = set()
+    for s in segments:
+        passthrough_ids.update(s.passthrough_anchor_ids or [])
+    passthrough_ids.difference_update(seen)  # already covered by endpoints
+    if passthrough_ids:
+        rows = (
+            await db.execute(select(Anchor).where(Anchor.id.in_(passthrough_ids)))
+        ).scalars().all()
+        for a in rows:
+            seen.add(a.id)
+            ordered.append(a)
     return ordered
 
 
 def clip_segments_from_anchor(segments: Sequence[Segment], anchor_id: uuid.UUID) -> list[Segment]:
-    """Return segments from the first one whose `from_anchor_id` matches `anchor_id` onward.
+    """Return segments from the first one whose `from_anchor_id` (or whose
+    `passthrough_anchor_ids`) matches ``anchor_id``, onward.
 
-    Mirrors the corridor model: a user joining at a mid-corridor anchor only needs the
-    suffix of the route from that point. If the anchor isn't a `from_anchor` in any
-    segment (e.g., it's only a destination), return an empty list.
+    A passthrough match clips to THAT segment: a rider boarding mid-leg at a
+    passthrough still takes the same instruction as someone boarding at the
+    leg's `from` (the instruction names the leg's destination, not its origin).
     """
     for i, seg in enumerate(segments):
         if seg.from_anchor_id == anchor_id:
+            return list(segments[i:])
+        if anchor_id in (seg.passthrough_anchor_ids or []):
             return list(segments[i:])
     return []
 

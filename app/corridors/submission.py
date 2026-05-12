@@ -57,6 +57,9 @@ class SegmentInput(BaseModel):
     transfer: bool = False
     cost_ngn: int | None = Field(default=None, ge=0)
     duration_min: int | None = Field(default=None, ge=0)
+    # Anchor names this leg physically passes through. Must reference anchors
+    # declared in the same submission. Comma-separated string or list accepted.
+    passthroughs: list[str] = Field(default_factory=list)
 
     @field_validator("mode")
     @classmethod
@@ -69,6 +72,15 @@ class SegmentInput(BaseModel):
     @classmethod
     def _strip(cls, v: str) -> str:
         return v.strip()
+
+    @field_validator("passthroughs", mode="before")
+    @classmethod
+    def _split_passthroughs(cls, v: object) -> list[str]:
+        if isinstance(v, str):
+            return [a.strip() for a in v.split(",") if a.strip()]
+        if isinstance(v, list):
+            return [str(a).strip() for a in v if str(a).strip()]
+        return []
 
 
 class CorridorSubmission(BaseModel):
@@ -103,6 +115,15 @@ class CorridorSubmission(BaseModel):
                 errors.append(f"Segment {i}: 'to' anchor '{s.to_anchor}' is not declared.")
             if s.from_anchor == s.to_anchor:
                 errors.append(f"Segment {i}: 'from' and 'to' anchors must differ.")
+            for p in s.passthroughs:
+                if p not in names:
+                    errors.append(
+                        f"Segment {i}: passthrough '{p}' is not in the anchor list."
+                    )
+                if p == s.from_anchor or p == s.to_anchor:
+                    errors.append(
+                        f"Segment {i}: passthrough '{p}' is already an endpoint of this step."
+                    )
         if errors:
             raise SubmissionError("\n".join(errors))
 
@@ -128,6 +149,7 @@ async def create_pending(
     await db.flush()
 
     for i, s in enumerate(payload.segments, start=1):
+        passthrough_ids = [anchors_by_name[name].id for name in s.passthroughs]
         db.add(
             Segment(
                 corridor_id=corridor.id,
@@ -139,6 +161,7 @@ async def create_pending(
                 transfer=s.transfer,
                 cost_ngn=s.cost_ngn,
                 duration_min=s.duration_min,
+                passthrough_anchor_ids=passthrough_ids,
             )
         )
     await db.flush()

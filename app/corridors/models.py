@@ -157,6 +157,13 @@ class Segment(Base):
     duration_min: Mapped[int | None] = mapped_column(Integer, nullable=True)
     time_windows: Mapped[list[dict[str, object]] | None] = mapped_column(JSONB, nullable=True)
     availability_notes: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    # Anchors the vehicle physically passes through on this leg but doesn't
+    # stop at as an endpoint. Used at query time so a rider near any of these
+    # places can join mid-leg and get the same clipped instructions. Stored
+    # as a Postgres UUID array — order-insensitive, dedup at the app layer.
+    passthrough_anchor_ids: Mapped[list[uuid.UUID]] = mapped_column(
+        ARRAY(UUID(as_uuid=True)), nullable=False, default=list, server_default="{}"
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )

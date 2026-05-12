@@ -425,6 +425,7 @@ def _empty_segment_row() -> dict[str, str]:
         "transfer": "false",
         "cost_ngn": "",
         "duration_min": "",
+        "passthroughs": "",
     }
 
 
@@ -469,6 +470,7 @@ def _collect_submission_form(form: FormData) -> dict[str, Any]:
     seg_transfer = form.getlist("seg_transfer")
     seg_cost = form.getlist("seg_cost_ngn")
     seg_duration = form.getlist("seg_duration_min")
+    seg_passthroughs = form.getlist("seg_passthroughs")
 
     segments: list[dict[str, object]] = []
     for i, instr in enumerate(seg_instruction):
@@ -476,6 +478,9 @@ def _collect_submission_form(form: FormData) -> dict[str, Any]:
             continue
         cost = str(seg_cost[i] if i < len(seg_cost) else "").strip()
         duration = str(seg_duration[i] if i < len(seg_duration) else "").strip()
+        passthroughs_raw = (
+            str(seg_passthroughs[i]).strip() if i < len(seg_passthroughs) else ""
+        )
         segments.append(
             {
                 "from_anchor": str(seg_from[i]) if i < len(seg_from) else "",
@@ -485,6 +490,7 @@ def _collect_submission_form(form: FormData) -> dict[str, Any]:
                 "transfer": (str(seg_transfer[i]) if i < len(seg_transfer) else "false") == "true",
                 "cost_ngn": int(cost) if cost else None,
                 "duration_min": int(duration) if duration else None,
+                "passthroughs": passthroughs_raw,  # SegmentInput splits the comma-list
             }
         )
 
@@ -519,6 +525,11 @@ def _form_state_from_raw(raw: dict[str, Any]) -> dict[str, Any]:
     segments_in = list(raw.get("segments") or [])
     segments: list[dict[str, str]] = []
     for s in segments_in:
+        p_raw = s.get("passthroughs")
+        if isinstance(p_raw, list):
+            passthroughs = ", ".join(str(x) for x in p_raw)
+        else:
+            passthroughs = str(p_raw or "")
         segments.append(
             {
                 "from_anchor": str(s.get("from_anchor") or ""),
@@ -528,6 +539,7 @@ def _form_state_from_raw(raw: dict[str, Any]) -> dict[str, Any]:
                 "transfer": "true" if s.get("transfer") else "false",
                 "cost_ngn": "" if s.get("cost_ngn") is None else str(s.get("cost_ngn")),
                 "duration_min": "" if s.get("duration_min") is None else str(s.get("duration_min")),
+                "passthroughs": passthroughs,
             }
         )
     if not segments:
