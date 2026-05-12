@@ -103,6 +103,30 @@ async def submit_segment_row(request: Request) -> HTMLResponse:
     )
 
 
+@router.get("/submit/anchor-search", response_class=HTMLResponse)
+async def submit_anchor_search(
+    request: Request, q: str = "", city: str = "abuja"
+) -> HTMLResponse:
+    """Live-search existing anchors as the contributor types a name. Returns
+    a small HTMX-swappable list — clicking a result fills the row's coords.
+
+    Returns an empty body for queries under 2 chars so HTMX clears any stale
+    suggestions without firing a full SQL query on every keystroke.
+    """
+    from app.corridors.repository import search_anchors  # local import to avoid cycle
+
+    if len(q.strip()) < 2:
+        return HTMLResponse("")
+
+    factory = session_factory()
+    async with factory() as db:
+        results = await search_anchors(db, q, city=city, limit=5)
+
+    return templates.TemplateResponse(
+        request, "_anchor_suggestions.html", {"suggestions": list(results)}
+    )
+
+
 # --- POST handlers (HTMX form submissions) ------------------------------
 
 

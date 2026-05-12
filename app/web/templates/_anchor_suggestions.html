@@ -1,0 +1,30 @@
+{# Suggestions for the anchor-name autocomplete. Clicking a row fills the
+   inputs in its containing .anchor-row and clears the suggestions list. #}
+{% if suggestions %}
+  <ul class="mt-1 rounded-md border border-slate-200 bg-white shadow-sm divide-y divide-slate-100">
+    {% for a in suggestions %}
+      <li>
+        <button type="button"
+                data-name="{{ a.name }}"
+                data-lat="{{ a.lat }}"
+                data-lon="{{ a.lon }}"
+                data-aliases="{{ a.aliases|join(', ') }}"
+                onclick="
+                  const row = this.closest('.anchor-row');
+                  row.querySelector('[name=anchor_name]').value = this.dataset.name;
+                  row.querySelector('[name=anchor_lat]').value = this.dataset.lat;
+                  row.querySelector('[name=anchor_lon]').value = this.dataset.lon;
+                  row.querySelector('[name=anchor_aliases]').value = this.dataset.aliases;
+                  row.querySelector('.anchor-suggestions').innerHTML = '';
+                "
+                class="w-full text-left px-3 py-2 text-sm hover:bg-slate-50">
+          <div class="font-medium text-slate-900">{{ a.name }}</div>
+          <div class="text-xs text-slate-500">
+            {{ "%.4f"|format(a.lat) }}, {{ "%.4f"|format(a.lon) }}
+            {% if a.aliases %} · {{ a.aliases|join(', ') }}{% endif %}
+          </div>
+        </button>
+      </li>
+    {% endfor %}
+  </ul>
+{% endif %}

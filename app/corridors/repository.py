@@ -81,6 +81,28 @@ async def find_anchor_by_name(
     return result.scalar_one_or_none()
 
 
+async def search_anchors(
+    db: AsyncSession, query: str, *, city: str | None = None, limit: int = 5
+) -> Sequence[Anchor]:
+    """Prefix/substring search across anchor names and aliases.
+
+    Powers the submission-form autocomplete: as a contributor types a name,
+    we suggest existing anchors so they don't have to enter coordinates that
+    are already known. Case-insensitive; matches ``ILIKE %q%`` on name and
+    array-containment on aliases.
+    """
+    needle = query.strip().lower()
+    if len(needle) < 2:
+        return []
+    name_like = func.lower(Anchor.name).like(f"%{needle}%")
+    alias_match = Anchor.aliases.contains([needle])
+    where = [or_(name_like, alias_match)]
+    if city is not None:
+        where.append(Anchor.city == city)
+    stmt = select(Anchor).where(*where).order_by(Anchor.name).limit(limit)
+    return (await db.execute(stmt)).scalars().all()
+
+
 async def nearest_anchor_in_corridor(
     db: AsyncSession, corridor_id: uuid.UUID, lat: float, lon: float
 ) -> tuple[Anchor, float] | None:

@@ -1,4 +1,6 @@
-{# One anchor card. The form posts parallel arrays (anchor_name[], anchor_lat[], etc.). #}
+{# One anchor card. The form posts parallel arrays (anchor_name[], anchor_lat[], etc.).
+   The name input is wired to a live-search endpoint that suggests existing anchors
+   so contributors don't have to enter coordinates that are already known. #}
 <div class="anchor-row rounded-md border border-slate-200 bg-white p-4">
   <div class="flex items-start justify-between">
     <span class="text-xs font-medium uppercase tracking-wide text-slate-500">Anchor</span>
@@ -8,14 +10,19 @@
   </div>
 
   <div class="mt-3 grid sm:grid-cols-2 gap-4">
-    <label class="block">
+    <label class="block sm:col-span-2">
       <span class="text-sm font-medium text-slate-700">Name</span>
       <input name="anchor_name" type="text" required value="{{ row.name }}"
-             placeholder="e.g. Police Signpost"
+             placeholder="e.g. Police Signpost — start typing to see existing places"
+             hx-get="/submit/anchor-search"
+             hx-trigger="keyup changed delay:250ms"
+             hx-target="next .anchor-suggestions"
+             hx-include="closest form [name=city]"
              class="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-brand-500" />
+      <div class="anchor-suggestions"></div>
     </label>
 
-    <label class="block">
+    <label class="block sm:col-span-2">
       <span class="text-sm font-medium text-slate-700">Aliases <span class="text-slate-400 font-normal">(optional)</span></span>
       <input name="anchor_aliases" type="text" value="{{ row.aliases }}"
              placeholder="comma-separated, e.g. banex, banex plaza"
@@ -36,4 +43,9 @@
              class="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-brand-500" />
     </label>
   </div>
+
+  <p class="mt-3 text-xs text-slate-500">
+    New place? Open Google Maps, search the spot, right-click the pin, copy the two numbers
+    that appear (e.g. <code class="font-mono">9.0750, 7.4820</code>) into Latitude and Longitude.
+  </p>
 </div>
