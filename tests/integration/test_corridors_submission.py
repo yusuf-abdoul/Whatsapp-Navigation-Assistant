@@ -90,6 +90,98 @@ def test_cross_validate_rejects_duplicate_anchor_names() -> None:
         payload.cross_validate()
 
 
+# --- case + alias resolution ---------------------------------------------
+
+
+def test_cross_validate_resolves_destination_case_insensitively() -> None:
+    payload = CorridorSubmission(
+        city="testcity",
+        destination="federal housing",  # lowercased; anchor uses title case
+        anchors=[
+            AnchorInput(name="Start", lat=9.0, lon=7.0),
+            AnchorInput(name="Federal Housing", lat=9.1, lon=7.1),
+        ],
+        segments=[
+            SegmentInput(
+                from_anchor="Start", to_anchor="Federal Housing", mode="taxi", instruction="go"
+            )
+        ],
+    )
+    payload.cross_validate()
+    assert payload.destination == "Federal Housing"  # rewritten to canonical
+
+
+def test_cross_validate_resolves_destination_by_alias() -> None:
+    payload = CorridorSubmission(
+        city="testcity",
+        destination="banex",  # an alias, not the canonical name
+        anchors=[
+            AnchorInput(name="Start", lat=9.0, lon=7.0),
+            AnchorInput(name="Banex Plaza", lat=9.1, lon=7.1, aliases=["banex", "banex plaza"]),
+        ],
+        segments=[
+            SegmentInput(
+                from_anchor="Start", to_anchor="banex plaza", mode="taxi", instruction="go"
+            )
+        ],
+    )
+    payload.cross_validate()
+    assert payload.destination == "Banex Plaza"
+    assert payload.segments[0].to_anchor == "Banex Plaza"
+
+
+def test_cross_validate_resolves_segment_endpoints_by_alias() -> None:
+    payload = CorridorSubmission(
+        city="testcity",
+        destination="Berger",
+        anchors=[
+            AnchorInput(name="Police Signpost", lat=8.94, lon=7.36, aliases=["lugbe signpost"]),
+            AnchorInput(name="Berger", lat=9.04, lon=7.46),
+        ],
+        segments=[
+            SegmentInput(
+                from_anchor="LUGBE SIGNPOST",  # alias, uppercased
+                to_anchor="berger",  # canonical name, lowercased
+                mode="taxi",
+                instruction="go",
+            )
+        ],
+    )
+    payload.cross_validate()
+    assert payload.segments[0].from_anchor == "Police Signpost"
+    assert payload.segments[0].to_anchor == "Berger"
+
+
+def test_cross_validate_resolves_passthroughs_by_alias_and_case() -> None:
+    payload = CorridorSubmission(
+        city="testcity",
+        destination="Banex Plaza",
+        anchors=[
+            AnchorInput(name="Police Signpost", lat=8.94, lon=7.36),
+            AnchorInput(name="Federal Housing", lat=9.00, lon=7.42, aliases=["fed housing"]),
+            AnchorInput(name="Berger", lat=9.04, lon=7.46),
+            AnchorInput(name="Banex Plaza", lat=9.075, lon=7.482),
+        ],
+        segments=[
+            SegmentInput(
+                from_anchor="Police Signpost",
+                to_anchor="Berger",
+                mode="taxi",
+                instruction="Take a taxi to Berger.",
+                passthroughs=["FED HOUSING"],  # alias, uppercased
+            ),
+            SegmentInput(
+                from_anchor="Berger",
+                to_anchor="Banex Plaza",
+                mode="taxi",
+                instruction="Take another taxi to Banex.",
+            ),
+        ],
+    )
+    payload.cross_validate()
+    assert payload.segments[0].passthroughs == ["Federal Housing"]
+
+
 # --- persist layer ------------------------------------------------------
 
 

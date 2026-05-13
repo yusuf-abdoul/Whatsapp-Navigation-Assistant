@@ -101,29 +101,66 @@ class CorridorSubmission(BaseModel):
         return v.strip() if v else None
 
     def cross_validate(self) -> None:
-        """Catches the multi-field rules Pydantic field-level can't see."""
+        """Catches inter-field rules AND canonicalizes anchor references.
+
+        Anchor references (``destination``, ``from_anchor``, ``to_anchor``, and
+        every entry in ``passthroughs``) are matched case-insensitively against
+        anchor names AND aliases. After validation the fields are rewritten to
+        the canonical anchor name so downstream code (the ``anchors_by_name``
+        lookup in ``create_pending``) keeps working as a simple dict lookup.
+
+        Contributors don't have to type the exact casing or remember which form
+        they used in the anchors list — "fed housing" matches an anchor named
+        "Federal Housing" with that alias just fine.
+        """
+        # Build a single lookup map: any name/alias (lowercased) → canonical anchor name.
+        canonical_by_lookup: dict[str, str] = {}
+        for a in self.anchors:
+            canonical_by_lookup[a.name.lower()] = a.name
+            for alias in a.aliases:  # already lowercased by AnchorInput's validator
+                canonical_by_lookup.setdefault(alias, a.name)
+
         errors: list[str] = []
-        names = {a.name for a in self.anchors}
-        if len(names) != len(self.anchors):
+
+        canonical_names = [a.name for a in self.anchors]
+        if len(set(canonical_names)) != len(canonical_names):
             errors.append("Anchor names must be unique within a submission.")
-        if self.destination not in names:
+
+        dest_canon = canonical_by_lookup.get(self.destination.lower())
+        if dest_canon is None:
             errors.append(f"Destination '{self.destination}' is not in the anchor list.")
+        else:
+            self.destination = dest_canon
+
         for i, s in enumerate(self.segments, start=1):
-            if s.from_anchor not in names:
+            from_canon = canonical_by_lookup.get(s.from_anchor.lower())
+            to_canon = canonical_by_lookup.get(s.to_anchor.lower())
+            if from_canon is None:
                 errors.append(f"Segment {i}: 'from' anchor '{s.from_anchor}' is not declared.")
-            if s.to_anchor not in names:
+            else:
+                s.from_anchor = from_canon
+            if to_canon is None:
                 errors.append(f"Segment {i}: 'to' anchor '{s.to_anchor}' is not declared.")
-            if s.from_anchor == s.to_anchor:
+            else:
+                s.to_anchor = to_canon
+            if from_canon and to_canon and from_canon == to_canon:
                 errors.append(f"Segment {i}: 'from' and 'to' anchors must differ.")
+
+            resolved_passthroughs: list[str] = []
             for p in s.passthroughs:
-                if p not in names:
+                p_canon = canonical_by_lookup.get(p.lower())
+                if p_canon is None:
                     errors.append(
                         f"Segment {i}: passthrough '{p}' is not in the anchor list."
                     )
-                if p == s.from_anchor or p == s.to_anchor:
+                elif p_canon in (from_canon, to_canon):
                     errors.append(
-                        f"Segment {i}: passthrough '{p}' is already an endpoint of this step."
+                        f"Segment {i}: passthrough '{p_canon}' is already an endpoint of this step."
                     )
+                else:
+                    resolved_passthroughs.append(p_canon)
+            s.passthroughs = resolved_passthroughs
+
         if errors:
             raise SubmissionError("\n".join(errors))
 
