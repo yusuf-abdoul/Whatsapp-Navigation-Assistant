@@ -62,6 +62,7 @@ def format_corridor(
     segments: Sequence[Segment],
     *,
     join_anchor: Anchor | None = None,
+    end_anchor: Anchor | None = None,
     distance_m: float | None = None,
     duration_s: float | None = None,
     deep_link: str | None = None,
@@ -72,31 +73,33 @@ def format_corridor(
     A run breaks when the mode changes OR when the next segment has
     ``transfer=True`` (explicit vehicle change).
 
-    **Instructions are SYNTHESIZED from structure** — mode, from-anchor, and
+    Instructions are synthesized from structure — mode, from-anchor, and
     to-anchor — not taken verbatim from the contributor's ``instruction``
     field. That way a rider joining mid-corridor at a passthrough sees their
-    actual boarding point in the step ("from Car Wash") rather than the
-    contributor's hardcoded origin ("from Police Signpost").
+    actual boarding point in the step.
 
-    ``join_anchor`` is the anchor the user is actually boarding from. The
-    FIRST run renders "Take a {mode} from {join_anchor} to {run.to}";
-    subsequent runs thread through, starting where the previous one ended
-    (since a transfer means changing vehicle AT that previous endpoint).
-    If ``join_anchor`` is None, the first run defaults to the first
-    segment's ``from_anchor`` (full-corridor render).
+    ``join_anchor`` is the user's boarding point. ``end_anchor`` is the user's
+    actual destination — if set, the LAST step's "to" and the header line use
+    its name instead of the corridor's canonical destination. That's what
+    powers intermediate-anchor destinations ("How do I get to Berger" when
+    Berger is on the Lugbe→Banex corridor but isn't its end).
     """
-    dest_name = corridor.destination.name
-    lines: list[str] = [f"To {dest_name}:"]
+    final_dest = (end_anchor or corridor.destination).name
+    lines: list[str] = [f"To {final_dest}:"]
 
+    runs = _group_runs(segments)
     prev_to: str | None = None
-    for i, run in enumerate(_group_runs(segments), start=1):
+    for i, run in enumerate(runs, start=1):
         if i == 1 and join_anchor is not None:
             effective_from = join_anchor.name
         elif prev_to is not None:
             effective_from = prev_to
         else:
             effective_from = run[0].from_anchor.name
-        effective_to = run[-1].to_anchor.name
+        if i == len(runs) and end_anchor is not None:
+            effective_to = end_anchor.name
+        else:
+            effective_to = run[-1].to_anchor.name
 
         line = f"{i}. {_synthesize_instruction(run[0].mode, effective_from, effective_to)}"
         cost = sum(s.cost_ngn or 0 for s in run) or None

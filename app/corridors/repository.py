@@ -174,6 +174,80 @@ def clip_segments_from_anchor(segments: Sequence[Segment], anchor_id: uuid.UUID)
     return []
 
 
+def clip_segments_between(
+    segments: Sequence[Segment],
+    origin_anchor_id: uuid.UUID,
+    destination_anchor_id: uuid.UUID,
+) -> list[Segment]:
+    """Return the slice of segments from ``origin`` to ``destination``.
+
+    The destination may appear as a segment's ``to_anchor`` OR as a passthrough
+    on a segment — either way, clipping ENDS at that segment (the renderer
+    overrides the displayed "to" with the user's actual destination anchor).
+
+    Returns an empty list when:
+    - ``origin`` isn't found on any segment as a from or passthrough
+    - ``destination`` isn't found at or after the origin's segment
+    - ``destination`` appears earlier in the corridor than ``origin``
+      (wrong direction — corridors are one-way)
+    """
+    start: int | None = None
+    for i, seg in enumerate(segments):
+        if seg.from_anchor_id == origin_anchor_id:
+            start = i
+            break
+        if origin_anchor_id in (seg.passthrough_anchor_ids or []):
+            start = i
+            break
+    if start is None:
+        return []
+
+    for j in range(start, len(segments)):
+        seg = segments[j]
+        if seg.to_anchor_id == destination_anchor_id:
+            return list(segments[start : j + 1])
+        if destination_anchor_id in (seg.passthrough_anchor_ids or []):
+            return list(segments[start : j + 1])
+    return []
+
+
+async def find_corridors_containing_anchor(
+    db: AsyncSession,
+    anchor_id: uuid.UUID,
+    *,
+    city: str | None = None,
+    only_approved: bool = True,
+) -> Sequence[Corridor]:
+    """Return corridors where ``anchor_id`` appears anywhere on the route.
+
+    "Anywhere" means: the corridor's destination, OR a segment's from-anchor,
+    OR a segment's to-anchor, OR an entry in any segment's passthrough list.
+    This is what lets an intermediate anchor (like "Berger" mid-Lugbe-to-Banex)
+    serve as a destination, not just the canonical end of a corridor.
+    """
+    segment_corridors = select(Segment.corridor_id).where(
+        or_(
+            Segment.from_anchor_id == anchor_id,
+            Segment.to_anchor_id == anchor_id,
+            Segment.passthrough_anchor_ids.contains([anchor_id]),
+        )
+    )
+    where = [or_(Corridor.destination_anchor_id == anchor_id, Corridor.id.in_(segment_corridors))]
+    if only_approved:
+        where.append(Corridor.status == "approved")
+    if city is not None:
+        where.append(
+            Corridor.destination_anchor_id.in_(select(Anchor.id).where(Anchor.city == city))
+        )
+    stmt = (
+        select(Corridor)
+        .where(*where)
+        .options(selectinload(Corridor.segments))
+        .order_by(Corridor.created_at.desc())
+    )
+    return (await db.execute(stmt)).scalars().unique().all()
+
+
 def _haversine_m(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
     rlat1, rlat2 = math.radians(lat1), math.radians(lat2)
     dlat = math.radians(lat2 - lat1)

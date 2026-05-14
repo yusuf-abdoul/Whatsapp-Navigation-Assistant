@@ -20,16 +20,17 @@ back to the LocationIQ-only "X km, ~Y min, map link" reply.
 import re
 
 import structlog
-from sqlalchemy.exc import SQLAlchemyError
 
 from app.analytics.events import Event, emit
 from app.channel.base import ChannelAdapter, InboundMessage
 from app.corridors.db import session_factory
-from app.corridors.models import Anchor, Corridor
+from app.corridors.models import Anchor, Corridor, Segment
 from app.corridors.repository import (
+    clip_segments_between,
     clip_segments_from_anchor,
     find_anchor_by_name,
     find_corridors_by_destination,
+    find_corridors_containing_anchor,
     nearest_anchor_in_corridor,
 )
 from app.errors import ErrorKind, WNAError
@@ -163,12 +164,30 @@ async def _resolve_destination(
     session: SessionState, query: str, channel: ChannelAdapter
 ) -> Place | None:
     """Resolve a destination string to a Place. Replies on the channel for
-    failure cases (ambiguity, not-found, error) and returns None then."""
+    failure cases (ambiguity, not-found, error) and returns None then.
+
+    Resolution order: corridor destination → any known anchor (lets
+    intermediate-route anchors like "Berger" serve as destinations) →
+    LocationIQ geocoding.
+    """
     corridor = await _lookup_corridor(query)
     if corridor is not None:
         anchor = corridor.destination
         emit(Event.DESTINATION_RECEIVED, user_id=session.user_id, query=query, source="corridor")
         return Place(query=query, lat=anchor.lat, lon=anchor.lon, display_name=anchor.name)
+
+    # Try any known anchor — supports destinations that aren't a corridor's end
+    # but appear as a stop on one (resolved later in _try_corridor_reply via
+    # find_corridors_containing_anchor).
+    known_anchor = await _lookup_anchor(query)
+    if known_anchor is not None:
+        emit(Event.DESTINATION_RECEIVED, user_id=session.user_id, query=query, source="anchor")
+        return Place(
+            query=query,
+            lat=known_anchor.lat,
+            lon=known_anchor.lon,
+            display_name=known_anchor.name,
+        )
 
     try:
         candidates = await geocode(query)
@@ -307,22 +326,56 @@ async def _try_corridor_reply(
     try:
         factory = session_factory()
         async with factory() as db:
+            # 1. Corridors that END at this destination (canonical path).
             corridors = await find_corridors_by_destination(db, dest.query, city=_DEFAULT_CITY)
+            end_anchor: Anchor | None = None
+
+            if not corridors:
+                # 2. Fallback: the destination is mid-corridor on some route.
+                #    Resolve it to an anchor row, then find every corridor that
+                #    contains it (as destination, endpoint, or passthrough).
+                dest_anchor = await find_anchor_by_name(db, dest.query, city=_DEFAULT_CITY)
+                if dest_anchor is None:
+                    return False
+                corridors = await find_corridors_containing_anchor(
+                    db, dest_anchor.id, city=_DEFAULT_CITY
+                )
+                end_anchor = dest_anchor
+
             if not corridors:
                 return False
-            corridor = corridors[0]
 
-            result = await nearest_anchor_in_corridor(db, corridor.id, origin.lat, origin.lon)
-            if result is None:
-                return False
-            nearest, dist_to_anchor_m = result
-            if dist_to_anchor_m > _CORRIDOR_JOIN_RADIUS_M:
-                return False
+            # Iterate candidates: pick the first one with a valid clip from the
+            # user's nearest anchor to the destination (origin must come BEFORE
+            # destination in the corridor's segment order, else clipping is empty).
+            corridor: Corridor | None = None
+            nearest: Anchor | None = None
+            dist_to_anchor_m: float | None = None
+            clipped: list[Segment] = []
+            for candidate in corridors:
+                result = await nearest_anchor_in_corridor(db, candidate.id, origin.lat, origin.lon)
+                if result is None:
+                    continue
+                cand_nearest, cand_dist = result
+                if cand_dist > _CORRIDOR_JOIN_RADIUS_M:
+                    continue
+                if end_anchor is not None:
+                    cand_clipped = clip_segments_between(
+                        candidate.segments, cand_nearest.id, end_anchor.id
+                    )
+                else:
+                    cand_clipped = clip_segments_from_anchor(candidate.segments, cand_nearest.id)
+                if not cand_clipped:
+                    continue
+                corridor = candidate
+                nearest = cand_nearest
+                dist_to_anchor_m = cand_dist
+                clipped = cand_clipped
+                break
 
-            clipped = clip_segments_from_anchor(corridor.segments, nearest.id)
-            if not clipped:
+            if corridor is None or nearest is None or dist_to_anchor_m is None:
                 return False
-    except SQLAlchemyError as e:
+    except Exception as e:
         log.warning("corridor_lookup_failed", error=str(e))
         return False
 
@@ -358,6 +411,7 @@ async def _try_corridor_reply(
             corridor,
             clipped,
             join_anchor=nearest,
+            end_anchor=end_anchor,
             distance_m=distance_m,
             duration_s=duration_s,
             deep_link=deep_link,
@@ -368,24 +422,29 @@ async def _try_corridor_reply(
 
 
 async def _lookup_corridor(query: str) -> Corridor | None:
-    """Return the first matching corridor, or None on miss / DB error."""
+    """Return the first matching corridor, or None on miss / any DB-side issue.
+
+    Catches every exception class — corridor lookups are a preference, not a
+    requirement. The LocationIQ fallback handles the user regardless. We don't
+    want a transient pool / loop issue to break the conversation.
+    """
     try:
         factory = session_factory()
         async with factory() as db:
             corridors = await find_corridors_by_destination(db, query, city=_DEFAULT_CITY)
             return corridors[0] if corridors else None
-    except SQLAlchemyError as e:
+    except Exception as e:
         log.warning("corridor_lookup_failed", query=query, error=str(e))
         return None
 
 
 async def _lookup_anchor(name: str) -> Anchor | None:
-    """Return a known anchor by name/alias, or None on miss / DB error."""
+    """Return a known anchor by name/alias, or None on miss / any DB-side issue."""
     try:
         factory = session_factory()
         async with factory() as db:
             return await find_anchor_by_name(db, name, city=_DEFAULT_CITY)
-    except SQLAlchemyError as e:
+    except Exception as e:
         log.warning("anchor_lookup_failed", name=name, error=str(e))
         return None
 
