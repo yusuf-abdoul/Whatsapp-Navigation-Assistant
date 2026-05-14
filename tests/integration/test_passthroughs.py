@@ -70,9 +70,7 @@ async def test_nearest_anchor_picks_a_passthrough(db) -> None:
     await db.commit()  # commit so a separate session sees it
 
     # User very near Mid-A — should match the corridor via the passthrough.
-    result = await nearest_anchor_in_corridor(
-        db, corridor.id, lat=9.0501, lon=7.0501
-    )
+    result = await nearest_anchor_in_corridor(db, corridor.id, lat=9.0501, lon=7.0501)
     assert result is not None
     nearest, _ = result
     assert nearest.id == pass_a.id
@@ -205,9 +203,7 @@ async def test_create_pending_persists_passthrough_anchor_ids(db) -> None:
     [seg] = corridor.segments
     assert len(seg.passthrough_anchor_ids) == 1
     # Fetched anchor row's id should match.
-    mid = (
-        await db.execute(select(Anchor).where(Anchor.name == "Mid"))
-    ).scalar_one()
+    mid = (await db.execute(select(Anchor).where(Anchor.name == "Mid"))).scalar_one()
     assert seg.passthrough_anchor_ids[0] == mid.id
 
 
@@ -342,8 +338,8 @@ def test_web_submit_persists_passthroughs(fake_redis, captured_send, client) -> 
         try:
             async with async_sessionmaker(engine, expire_on_commit=False)() as db:
                 segs = (
-                    await db.execute(select(Segment).order_by(Segment.sequence))
-                ).scalars().all()
+                    (await db.execute(select(Segment).order_by(Segment.sequence))).scalars().all()
+                )
                 assert len(segs) == 2
                 assert len(segs[0].passthrough_anchor_ids) == 1
                 assert len(segs[1].passthrough_anchor_ids) == 0

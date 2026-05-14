@@ -150,8 +150,8 @@ async def _corridor_anchors(db: AsyncSession, corridor_id: uuid.UUID) -> list[An
     passthrough_ids.difference_update(seen)  # already covered by endpoints
     if passthrough_ids:
         rows = (
-            await db.execute(select(Anchor).where(Anchor.id.in_(passthrough_ids)))
-        ).scalars().all()
+            (await db.execute(select(Anchor).where(Anchor.id.in_(passthrough_ids)))).scalars().all()
+        )
         for a in rows:
             seen.add(a.id)
             ordered.append(a)

@@ -85,9 +85,7 @@ async def load_file(db: AsyncSession, path: Path) -> dict[str, int]:
         passthrough_ids: list[uuid.UUID] = []
         for name in passthroughs:
             if name not in anchors_by_name:
-                raise SeedError(
-                    f"{path}: segment passthrough '{name}' not declared in anchors"
-                )
+                raise SeedError(f"{path}: segment passthrough '{name}' not declared in anchors")
             passthrough_ids.append(anchors_by_name[name].id)
 
         db.add(

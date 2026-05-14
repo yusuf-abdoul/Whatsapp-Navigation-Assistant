@@ -104,9 +104,7 @@ async def submit_segment_row(request: Request) -> HTMLResponse:
 
 
 @router.get("/submit/anchor-search", response_class=HTMLResponse)
-async def submit_anchor_search(
-    request: Request, q: str = "", city: str = "abuja"
-) -> HTMLResponse:
+async def submit_anchor_search(request: Request, q: str = "", city: str = "abuja") -> HTMLResponse:
     """Live-search existing anchors as the contributor types a name. Returns
     a small HTMX-swappable list — clicking a result fills the row's coords.
 
@@ -478,9 +476,7 @@ def _collect_submission_form(form: FormData) -> dict[str, Any]:
             continue
         cost = str(seg_cost[i] if i < len(seg_cost) else "").strip()
         duration = str(seg_duration[i] if i < len(seg_duration) else "").strip()
-        passthroughs_raw = (
-            str(seg_passthroughs[i]).strip() if i < len(seg_passthroughs) else ""
-        )
+        passthroughs_raw = str(seg_passthroughs[i]).strip() if i < len(seg_passthroughs) else ""
         segments.append(
             {
                 "from_anchor": str(seg_from[i]) if i < len(seg_from) else "",

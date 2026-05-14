@@ -165,8 +165,10 @@ async def test_direction_with_known_corridor_replies_with_numbered_steps(fake_re
     assert "1." in reply
     assert "2." in reply
     assert "3." not in reply  # collapsed
-    assert "Berger junction" in reply  # from the run's last instruction
-    assert "Berger to Banex Plaza" in reply  # the transfer-marked segment
+    # Instructions are synthesized from anchor names — first run ends at Berger,
+    # then the transfer-marked taxi goes Berger -> Banex Plaza.
+    assert "Police Signpost to Berger" in reply
+    assert "Berger to Banex Plaza" in reply
     assert "Banex Plaza" in reply
     # Footer with distance/ETA from LocationIQ.
     assert "km" in reply

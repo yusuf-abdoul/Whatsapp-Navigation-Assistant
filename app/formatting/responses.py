@@ -7,7 +7,7 @@ users don't care about in a chat reply.
 
 from collections.abc import Sequence
 
-from app.corridors.models import Corridor, Segment
+from app.corridors.models import Anchor, Corridor, Segment
 from app.errors import ErrorKind
 from app.routing.locationiq import Route
 from app.session.state import Place
@@ -61,25 +61,44 @@ def format_corridor(
     corridor: Corridor,
     segments: Sequence[Segment],
     *,
+    join_anchor: Anchor | None = None,
     distance_m: float | None = None,
     duration_s: float | None = None,
     deep_link: str | None = None,
 ) -> str:
     """Render a corridor hit as numbered commuter steps.
 
-    Consecutive same-mode segments are collapsed into a single user-facing step
-    (one taxi ride that passes multiple anchors should not be three "stay on"
-    instructions). A run breaks when the mode changes OR when the next segment
-    has ``transfer=True`` (explicit vehicle change). The collapsed step uses
-    the LAST segment's ``instruction`` — contributors author each instruction
-    as a fresh boarding directive that names the run's destination.
+    Consecutive same-mode segments are collapsed into one user-facing step.
+    A run breaks when the mode changes OR when the next segment has
+    ``transfer=True`` (explicit vehicle change).
+
+    **Instructions are SYNTHESIZED from structure** — mode, from-anchor, and
+    to-anchor — not taken verbatim from the contributor's ``instruction``
+    field. That way a rider joining mid-corridor at a passthrough sees their
+    actual boarding point in the step ("from Car Wash") rather than the
+    contributor's hardcoded origin ("from Police Signpost").
+
+    ``join_anchor`` is the anchor the user is actually boarding from. The
+    FIRST run renders "Take a {mode} from {join_anchor} to {run.to}";
+    subsequent runs thread through, starting where the previous one ended
+    (since a transfer means changing vehicle AT that previous endpoint).
+    If ``join_anchor`` is None, the first run defaults to the first
+    segment's ``from_anchor`` (full-corridor render).
     """
     dest_name = corridor.destination.name
     lines: list[str] = [f"To {dest_name}:"]
 
+    prev_to: str | None = None
     for i, run in enumerate(_group_runs(segments), start=1):
-        last = run[-1]
-        line = f"{i}. {last.instruction}"
+        if i == 1 and join_anchor is not None:
+            effective_from = join_anchor.name
+        elif prev_to is not None:
+            effective_from = prev_to
+        else:
+            effective_from = run[0].from_anchor.name
+        effective_to = run[-1].to_anchor.name
+
+        line = f"{i}. {_synthesize_instruction(run[0].mode, effective_from, effective_to)}"
         cost = sum(s.cost_ngn or 0 for s in run) or None
         duration = sum(s.duration_min or 0 for s in run) or None
         extras: list[str] = []
@@ -90,6 +109,7 @@ def format_corridor(
         if extras:
             line += f" ({', '.join(extras)})"
         lines.append(line)
+        prev_to = effective_to
 
     footer: list[str] = []
     if distance_m is not None and duration_s is not None:
@@ -102,6 +122,20 @@ def format_corridor(
         lines.append("")
         lines.extend(footer)
     return "\n".join(lines)
+
+
+def _synthesize_instruction(mode: str, from_anchor: str, to_anchor: str) -> str:
+    """Build a per-step instruction from structured data.
+
+    The phrasing intentionally avoids depending on the contributor's prose —
+    so the same corridor produces correct text whether the rider boards at
+    the canonical start or joins mid-route via a passthrough.
+    """
+    if mode == "walk":
+        return f"Walk from {from_anchor} to {to_anchor}."
+    if mode == "mixed":
+        return f"Travel from {from_anchor} to {to_anchor}."
+    return f"Take a {mode} from {from_anchor} to {to_anchor}."
 
 
 def _group_runs(segments: Sequence[Segment]) -> list[list[Segment]]:

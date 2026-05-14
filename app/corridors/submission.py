@@ -150,9 +150,7 @@ class CorridorSubmission(BaseModel):
             for p in s.passthroughs:
                 p_canon = canonical_by_lookup.get(p.lower())
                 if p_canon is None:
-                    errors.append(
-                        f"Segment {i}: passthrough '{p}' is not in the anchor list."
-                    )
+                    errors.append(f"Segment {i}: passthrough '{p}' is not in the anchor list.")
                 elif p_canon in (from_canon, to_canon):
                     errors.append(
                         f"Segment {i}: passthrough '{p_canon}' is already an endpoint of this step."

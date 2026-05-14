@@ -357,6 +357,7 @@ async def _try_corridor_reply(
         format_corridor(
             corridor,
             clipped,
+            join_anchor=nearest,
             distance_m=distance_m,
             duration_s=duration_s,
             deep_link=deep_link,
