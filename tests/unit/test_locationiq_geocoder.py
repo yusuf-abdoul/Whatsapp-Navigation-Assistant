@@ -126,6 +126,100 @@ async def test_geocode_retries_unbounded_when_bounded_is_empty() -> None:
 
 
 @respx.mock
+async def test_unbounded_fallback_drops_out_of_buffer_results() -> None:
+    """A national fallback that returns Ibadan / Bauchi / Benin motor parks
+    must be filtered out — they fail the Abuja-plus-buffer check."""
+    respx.get(_SEARCH_URL).mock(
+        side_effect=[
+            httpx.Response(200, json=[]),  # bounded: empty
+            httpx.Response(
+                200,
+                json=[
+                    # Ibadan (lat ~7.4, lon ~3.9) — way south + west of Abuja.
+                    {
+                        "lat": "7.39",
+                        "lon": "3.91",
+                        "display_name": "Challenge Motor Park, Ibadan",
+                        "importance": 0.3,
+                    },
+                    # Bauchi (lat ~10.3, lon ~9.8) — too far north + east.
+                    {
+                        "lat": "10.31",
+                        "lon": "9.84",
+                        "display_name": "Yankari Motor park, Bauchi",
+                        "importance": 0.3,
+                    },
+                    # Benin City (lat ~6.3, lon ~5.6) — far south.
+                    {
+                        "lat": "6.34",
+                        "lon": "5.62",
+                        "display_name": "Osaro Motors Park, Benin City",
+                        "importance": 0.3,
+                    },
+                ],
+            ),
+        ]
+    )
+    places = await geocode("jabi motor park")
+    assert places == []
+
+
+@respx.mock
+async def test_unbounded_fallback_keeps_results_inside_buffer() -> None:
+    """Real Abuja places sometimes have OSM coordinates that drift just
+    outside the strict viewbox — the buffer is what catches them."""
+    respx.get(_SEARCH_URL).mock(
+        side_effect=[
+            httpx.Response(200, json=[]),  # bounded: empty
+            httpx.Response(
+                200,
+                json=[
+                    # Just outside the strict viewbox (lat 8.80-9.20) but inside the buffer.
+                    {
+                        "lat": "8.75",  # below 8.80, above 8.30 (buffer min)
+                        "lon": "7.45",
+                        "display_name": "Edge of Abuja",
+                        "importance": 0.4,
+                    },
+                ],
+            ),
+        ]
+    )
+    places = await geocode("edge place")
+    assert len(places) == 1
+    assert places[0].display_name == "Edge of Abuja"
+
+
+@respx.mock
+async def test_unbounded_fallback_mixed_results_keeps_only_in_buffer() -> None:
+    """A mixed fallback — keep the Abuja-area row, drop the others."""
+    respx.get(_SEARCH_URL).mock(
+        side_effect=[
+            httpx.Response(200, json=[]),
+            httpx.Response(
+                200,
+                json=[
+                    {
+                        "lat": "7.39",
+                        "lon": "3.91",
+                        "display_name": "Ibadan thing",
+                        "importance": 0.5,
+                    },
+                    {
+                        "lat": "9.05",
+                        "lon": "7.50",
+                        "display_name": "Abuja thing",
+                        "importance": 0.3,
+                    },
+                ],
+            ),
+        ]
+    )
+    places = await geocode("ambiguous")
+    assert [p.display_name for p in places] == ["Abuja thing"]
+
+
+@respx.mock
 async def test_geocode_404_returns_empty_list() -> None:
     respx.get(_SEARCH_URL).mock(
         return_value=httpx.Response(404, json={"error": "Unable to geocode"})
