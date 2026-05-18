@@ -241,3 +241,137 @@ async def test_help_does_not_clear_session(
     session = await store.get(USER)
     assert session is not None
     assert session.destination is not None
+
+
+# --- ambiguity follow-up (Bug 2 fix) -----------------------------------------
+
+
+async def _send_ambiguity_prompt(channel: FakeChannel) -> None:
+    """Helper: trigger the ambiguity path so session.pending_clarification is set."""
+    candidates = [
+        Place(query="banex", lat=9.07, lon=7.48, display_name="Old Banex Plaza, Wuse 2"),
+        Place(query="banex", lat=9.08, lon=7.49, display_name="New Banex Plaza, Aminu Kano"),
+        Place(query="banex", lat=9.09, lon=7.50, display_name="Banex Bakery, Garki"),
+    ]
+    with patch("app.flows.orchestrator.geocode", AsyncMock(return_value=candidates)):
+        await handle(_msg(text="How do I get to banex"), channel)
+
+
+async def test_ambiguity_persists_candidates_on_session(
+    fake_redis: fakeredis.aioredis.FakeRedis, channel: FakeChannel
+) -> None:
+    await _send_ambiguity_prompt(channel)
+    session = await store.get(USER)
+    assert session is not None
+    assert len(session.pending_clarification) == 3
+    assert session.pending_clarification[0]["display_name"].startswith("Old Banex Plaza")
+
+
+async def test_ambiguity_pick_by_number(
+    fake_redis: fakeredis.aioredis.FakeRedis, channel: FakeChannel
+) -> None:
+    await _send_ambiguity_prompt(channel)
+    channel.texts.clear()
+
+    await handle(_msg(text="2"), channel)
+
+    session = await store.get(USER)
+    assert session is not None
+    assert session.destination is not None
+    assert session.destination.display_name == "New Banex Plaza, Aminu Kano"
+    assert session.pending_clarification == []
+    assert "New Banex Plaza" in channel.texts[-1][1]
+    assert "share your live location" in channel.texts[-1][1].lower()
+
+
+async def test_ambiguity_pick_by_first_part_label(
+    fake_redis: fakeredis.aioredis.FakeRedis, channel: FakeChannel
+) -> None:
+    await _send_ambiguity_prompt(channel)
+    channel.texts.clear()
+
+    # User types just the first part of one of the displayed options.
+    await handle(_msg(text="Old Banex Plaza"), channel)
+
+    session = await store.get(USER)
+    assert session is not None
+    assert session.destination is not None
+    assert "Old Banex Plaza" in session.destination.display_name
+    assert session.pending_clarification == []
+
+
+async def test_ambiguity_pick_is_case_insensitive(
+    fake_redis: fakeredis.aioredis.FakeRedis, channel: FakeChannel
+) -> None:
+    await _send_ambiguity_prompt(channel)
+    channel.texts.clear()
+
+    await handle(_msg(text="banex bakery"), channel)
+
+    session = await store.get(USER)
+    assert session is not None
+    assert session.destination is not None
+    assert session.destination.display_name.startswith("Banex Bakery")
+
+
+async def test_ambiguity_out_of_range_number_falls_through(
+    fake_redis: fakeredis.aioredis.FakeRedis, channel: FakeChannel
+) -> None:
+    """A number outside the candidate range is not a valid pick — treat as a
+    fresh query, and clear the pending slot so we don't keep guessing."""
+    await _send_ambiguity_prompt(channel)
+    channel.texts.clear()
+
+    # No matching candidate "9" and no direction intent — falls to UNKNOWN_INTENT.
+    await handle(_msg(text="9"), channel)
+
+    session = await store.get(USER)
+    assert session is not None
+    assert session.pending_clarification == []  # cleared after failed pick
+
+
+async def test_new_direction_after_ambiguity_clears_pending(
+    fake_redis: fakeredis.aioredis.FakeRedis, channel: FakeChannel
+) -> None:
+    await _send_ambiguity_prompt(channel)
+    channel.texts.clear()
+
+    # Single-match destination so we get a clean "Found X" path.
+    with patch(
+        "app.flows.orchestrator.geocode",
+        AsyncMock(return_value=[Place(query="jabi", lat=9.08, lon=7.42, display_name="Jabi Mall")]),
+    ):
+        await handle(_msg(text="How do I get to jabi"), channel)
+
+    session = await store.get(USER)
+    assert session is not None
+    assert session.destination is not None
+    assert session.destination.display_name == "Jabi Mall"
+    assert session.pending_clarification == []
+
+
+async def test_live_location_after_ambiguity_clears_pending(
+    fake_redis: fakeredis.aioredis.FakeRedis, channel: FakeChannel
+) -> None:
+    await _send_ambiguity_prompt(channel)
+    channel.texts.clear()
+
+    # User sends a live location instead of picking — clear pending, fall to
+    # the "I don't know where you want to go yet" branch.
+    await handle(_msg(lat=9.001, lon=7.400), channel)
+
+    session = await store.get(USER)
+    assert session is not None
+    assert session.pending_clarification == []
+    assert "where you want to go" in channel.texts[-1][1].lower()
+
+
+async def test_cancel_after_ambiguity_clears_session_entirely(
+    fake_redis: fakeredis.aioredis.FakeRedis, channel: FakeChannel
+) -> None:
+    await _send_ambiguity_prompt(channel)
+    channel.texts.clear()
+
+    await handle(_msg(text="cancel"), channel)
+
+    assert await store.get(USER) is None  # session deleted, pending gone

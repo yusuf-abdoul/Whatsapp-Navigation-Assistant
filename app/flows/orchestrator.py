@@ -89,12 +89,29 @@ async def handle(message: InboundMessage, channel: ChannelAdapter) -> None:
     session = await store.get(message.user_id) or SessionState(user_id=message.user_id)
 
     if message.latitude is not None and message.longitude is not None:
+        # A live location share is never an ambiguity pick — clear pending.
+        if session.pending_clarification:
+            session.pending_clarification = []
+            await store.put(session)
         await _handle_location(session, message.latitude, message.longitude, channel)
         return
 
     if not message.text:
         await channel.send_text(message.user_id, format_error(ErrorKind.UNKNOWN_INTENT))
         return
+
+    # If we just sent an ambiguity prompt, the user's next text might be the
+    # pick ("1", or one of the option labels). Try to resolve it before we
+    # treat the message as a fresh query.
+    if session.pending_clarification:
+        picked = _resolve_clarification(session, message.text)
+        if picked is not None:
+            await _accept_clarification(session, picked, channel)
+            return
+        # Couldn't read it as a pick — clear the slot and fall through to
+        # normal intent handling (likely a new query).
+        session.pending_clarification = []
+        await store.put(session)
 
     result = detect(message.text)
 
@@ -211,7 +228,16 @@ async def _resolve_destination(
             query=query,
             count=len(candidates),
         )
-        prompt, options = format_ambiguity(query, candidates[:3])
+        top = candidates[:3]
+        prompt, options = format_ambiguity(query, top)
+        # Stash the candidate list on the session so the next inbound message
+        # ("1" / "2" / a label) can be resolved as the user's pick instead of
+        # being treated as a fresh, unrelated query.
+        session.pending_clarification = [
+            {"query": c.query, "lat": c.lat, "lon": c.lon, "display_name": c.display_name}
+            for c in top
+        ]
+        await store.put(session)
         await channel.send_options(session.user_id, prompt, options)
         return None
 
@@ -452,3 +478,73 @@ async def _lookup_anchor(name: str) -> Anchor | None:
 def _strip_origin_prefix(text: str) -> str:
     cleaned = _ORIGIN_PREFIX.sub("", text).strip()
     return cleaned or text.strip()
+
+
+def _resolve_clarification(session: SessionState, text: str) -> Place | None:
+    """Match the user's reply against the candidates stashed on the session.
+
+    Accepts:
+    - A number that indexes into the candidate list ("1", "2", ...)
+    - A full display-name match, case-insensitive
+    - A match against the first comma-separated part ("Old Banex Plaza" picks
+      the candidate displayed as "Old Banex Plaza, Aminu Kano Crescent, Abuja")
+
+    Returns None when the message doesn't look like a pick at all, so the
+    caller can fall through and treat the text as a fresh query.
+    """
+    candidates = session.pending_clarification or []
+    cleaned = text.strip()
+    if not cleaned or not candidates:
+        return None
+
+    if cleaned.isdigit():
+        idx = int(cleaned) - 1
+        if 0 <= idx < len(candidates):
+            return _place_from_clarification(candidates[idx])
+
+    lowered = cleaned.lower()
+    for cand in candidates:
+        display = (cand.get("display_name") or cand.get("query") or "")
+        if not display:
+            continue
+        display_lower = display.lower()
+        first_part = display_lower.split(",", 1)[0].strip()
+        if display_lower == lowered or first_part == lowered:
+            return _place_from_clarification(cand)
+    return None
+
+
+def _place_from_clarification(cand: dict[str, object]) -> Place:
+    return Place(
+        query=str(cand.get("query") or ""),
+        lat=cand.get("lat"),  # type: ignore[arg-type]
+        lon=cand.get("lon"),  # type: ignore[arg-type]
+        display_name=cand.get("display_name"),  # type: ignore[arg-type]
+    )
+
+
+async def _accept_clarification(
+    session: SessionState, picked: Place, channel: ChannelAdapter
+) -> None:
+    """Promote the picked candidate to the session destination and ask for origin.
+
+    Mirrors the tail of `_resolve_destination`'s single-match path so the
+    conversation continues identically to a clean direct match.
+    """
+    session.pending_clarification = []
+    session.destination = picked
+    session.origin = None
+    session.last_intent = Intent.DIRECTION
+    await store.put(session)
+    emit(
+        Event.DESTINATION_RECEIVED,
+        user_id=session.user_id,
+        query=picked.query,
+        source="clarification",
+    )
+    emit(Event.ORIGIN_REQUESTED, user_id=session.user_id)
+    await channel.send_text(
+        session.user_id,
+        f"Found {picked.display_name or picked.query}. Now share your live location, "
+        "or tell me where you're starting from (e.g. 'I'm at Lugbe').",
+    )
