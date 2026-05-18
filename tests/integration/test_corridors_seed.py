@@ -191,3 +191,73 @@ async def test_real_abuja_seed_files_load_cleanly(db):
     # Spot-check: the Lugbe→Banex corridor should now resolve via alias.
     [banex_corr] = await find_corridors_by_destination(db, "banex", city="abuja")
     assert len(banex_corr.segments) == 4
+
+
+async def test_seeding_twice_is_a_no_op(db, tmp_path):
+    """Idempotency: re-running the loader against the same files doesn't
+    insert duplicate corridors. Same (destination, contributor) is the
+    skip key."""
+    path = _write(
+        tmp_path,
+        "corr.yaml",
+        """
+        city: testcity
+        status: approved
+        contributor: seed
+        anchors:
+          - {name: A, lat: 9.0, lon: 7.0}
+          - {name: B, lat: 9.1, lon: 7.1}
+        destination: B
+        segments:
+          - {sequence: 1, from: A, to: B, mode: taxi, instruction: x}
+        """,
+    )
+
+    first = await load_file(db, path)
+    assert first["corridors"] == 1
+    second = await load_file(db, path)
+    assert second["corridors"] == 0
+
+    corridors = (await db.execute(select(Corridor))).scalars().all()
+    assert len(corridors) == 1
+
+
+async def test_seeding_same_destination_different_contributor_inserts_both(db, tmp_path):
+    """A different contributor for the same destination is a real submission,
+    not a duplicate — the loader should insert both."""
+    a = _write(
+        tmp_path,
+        "seed.yaml",
+        """
+        city: testcity
+        status: approved
+        contributor: seed
+        anchors:
+          - {name: A, lat: 9.0, lon: 7.0}
+          - {name: B, lat: 9.1, lon: 7.1}
+        destination: B
+        segments:
+          - {sequence: 1, from: A, to: B, mode: taxi, instruction: x}
+        """,
+    )
+    b = _write(
+        tmp_path,
+        "user.yaml",
+        """
+        city: testcity
+        status: approved
+        contributor: amina
+        anchors:
+          - {name: A, lat: 9.0, lon: 7.0}
+          - {name: B, lat: 9.1, lon: 7.1}
+        destination: B
+        segments:
+          - {sequence: 1, from: A, to: B, mode: keke, instruction: y}
+        """,
+    )
+
+    await load_file(db, a)
+    await load_file(db, b)
+
+    corridors = (await db.execute(select(Corridor))).scalars().all()
+    assert len(corridors) == 2

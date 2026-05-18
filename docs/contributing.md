@@ -15,9 +15,20 @@ If you only want one service: `docker compose up -d postgres` or `docker compose
 
 ## Seed corridors
 
-Seed YAMLs live under [data/corridors/<city>/](../data/corridors/). Each file is one corridor — its destination, ordered segments, and the anchors it touches. The loader upserts anchors by `(name, city)` and inserts a fresh corridor each run, so re-running seeds cleanly extends the dataset without duplicating place rows.
+Seed YAMLs live under [data/corridors/<city>/](../data/corridors/). Each file is one corridor — its destination, ordered segments, and the anchors it touches. The loader upserts anchors by `(name, city)` and inserts a corridor keyed on `(destination, contributor)` — so re-running the loader is **idempotent**: anchors merge their aliases, and corridors with a matching key are skipped.
 
 To add a new seed corridor: copy an existing `.yaml`, edit anchors / segments / destination, and re-run the loader. Every named stop on the route should be its own anchor (with lat/lon) — don't bury intermediate landmarks inside instruction text, or the lookup can't reason over them.
+
+## Resetting between tests and live runs
+
+The integration test suite truncates `anchors`, `corridors`, `segments`, and `users` between tests. After a `uv run pytest` run, the dev DB is empty. **You'll need to re-seed before live-testing on WhatsApp**:
+
+```bash
+uv run python -m app.corridors.seed --city abuja   # safe to re-run; idempotent
+uv run python -m app.corridors.seed --status       # quick check of what's loaded
+```
+
+`--status` prints a one-liner per corridor with destination, status, and contributor — fastest way to confirm the bot has data before you message it.
 
 ## Ownership Map
 

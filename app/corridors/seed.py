@@ -1,15 +1,20 @@
 """Seed corridor loader.
 
 Reads hand-authored YAML files under ``data/corridors/<city>/*.yaml``, upserts
-their anchors (matched by name+city), and inserts a fresh corridor with its
-ordered segments. Designed for dev/seed use; idempotency is best-effort
-(re-running re-creates corridors but keeps anchors stable). Once the
-contributor portal lands, this becomes a one-shot bootstrap script.
+their anchors (matched by name+city), and ensures one corridor per
+``(destination, contributor)`` pair exists. Designed to be safe to re-run:
+if a corridor with the same destination + contributor is already in the DB,
+the loader skips it. Anchors always upsert (alias merge, coords stay frozen
+once set — only the very first contributor gets to write coordinates).
+
+Contributor field defaults to ``"seed"`` so all hand-authored YAMLs share one
+identity, which means re-running the loader doesn't multiply corridors.
 
 CLI:
 
-    uv run python -m app.corridors.seed             # loads everything under data/corridors/
-    uv run python -m app.corridors.seed --city abuja  # one city only
+    uv run python -m app.corridors.seed              # loads everything under data/corridors/
+    uv run python -m app.corridors.seed --city abuja # one city only
+    uv run python -m app.corridors.seed --status     # show what's currently in the DB
 """
 
 from __future__ import annotations
@@ -53,7 +58,12 @@ async def load_directory(db: AsyncSession, root: Path) -> dict[str, int]:
 
 
 async def load_file(db: AsyncSession, path: Path) -> dict[str, int]:
-    """Load one corridor YAML file. Caller commits the session."""
+    """Load one corridor YAML file. Caller commits the session.
+
+    Idempotent: anchors are always upserted; the corridor is inserted only
+    if no row exists for (destination, contributor). Re-running the loader
+    against a populated DB is a no-op for already-loaded files.
+    """
     data = yaml.safe_load(path.read_text())
     if not isinstance(data, dict):
         raise SeedError(f"{path}: top-level must be a mapping")
@@ -64,12 +74,31 @@ async def load_file(db: AsyncSession, path: Path) -> dict[str, int]:
     if destination_name not in anchors_by_name:
         raise SeedError(f"{path}: destination '{destination_name}' not in anchors list")
 
+    contributor = data.get("contributor", "seed")
+    destination_id = anchors_by_name[destination_name].id
+
+    existing = (
+        await db.execute(
+            select(Corridor).where(
+                Corridor.destination_anchor_id == destination_id,
+                Corridor.contributor_id == contributor,
+            )
+        )
+    ).scalar_one_or_none()
+    if existing is not None:
+        try:
+            rel = str(path.relative_to(REPO_ROOT))
+        except ValueError:
+            rel = str(path)
+        log.info("corridor_seed_skipped_existing", path=rel, destination=destination_name)
+        return {"anchors": len(anchors_by_name), "corridors": 0, "segments": 0}
+
     corridor = Corridor(
-        destination_anchor_id=anchors_by_name[destination_name].id,
+        destination_anchor_id=destination_id,
         status=data.get("status", "pending"),
         applicability_notes=data.get("applicability_notes"),
         applicability_windows=data.get("applicability_windows", []),
-        contributor_id=data.get("contributor"),
+        contributor_id=contributor,
     )
     db.add(corridor)
     await db.flush()
@@ -176,8 +205,44 @@ async def _main(city: str | None) -> None:
     )
 
 
+async def _status() -> None:
+    """Print a quick summary of what's currently in the corridor tables.
+
+    Handy after a test run (which truncates) to confirm whether you need to
+    re-seed before WhatsApp testing.
+    """
+    factory = session_factory()
+    async with factory() as db:
+        from sqlalchemy import func as sa_func
+
+        anchor_count = (await db.execute(select(sa_func.count(Anchor.id)))).scalar_one()
+        rows = (
+            await db.execute(
+                select(Anchor.name, Corridor.status, Corridor.contributor_id)
+                .join(Anchor, Anchor.id == Corridor.destination_anchor_id)
+                .order_by(Anchor.name)
+            )
+        ).all()
+
+    print(f"anchors: {anchor_count}")
+    print(f"corridors: {len(rows)}")
+    if not rows:
+        print("  (none — run `python -m app.corridors.seed` to load Abuja seeds)")
+        return
+    for name, status, contributor in rows:
+        print(f"  - {name} [{status}] (contributor={contributor})")
+
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Load corridor seed YAMLs into the database.")
     parser.add_argument("--city", help="Only load corridors under data/corridors/<city>/")
+    parser.add_argument(
+        "--status",
+        action="store_true",
+        help="Print current DB contents and exit (no writes)",
+    )
     args = parser.parse_args()
-    asyncio.run(_main(args.city))
+    if args.status:
+        asyncio.run(_status())
+    else:
+        asyncio.run(_main(args.city))
