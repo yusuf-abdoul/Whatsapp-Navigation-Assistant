@@ -19,16 +19,24 @@ Seed YAMLs live under [data/corridors/<city>/](../data/corridors/). Each file is
 
 To add a new seed corridor: copy an existing `.yaml`, edit anchors / segments / destination, and re-run the loader. Every named stop on the route should be its own anchor (with lat/lon) — don't bury intermediate landmarks inside instruction text, or the lookup can't reason over them.
 
-## Resetting between tests and live runs
+## Test database
 
-The integration test suite truncates `anchors`, `corridors`, `segments`, and `users` between tests. After a `uv run pytest` run, the dev DB is empty. **You'll need to re-seed before live-testing on WhatsApp**:
+Tests run against a **separate database** — `wna_test` — not the dev database `wna`. [tests/conftest.py](../tests/conftest.py) sets `DATABASE_URL` to point at `wna_test` before any app code is imported, then auto-creates the database (if it doesn't exist) and applies migrations.
+
+This means `uv run pytest` **never touches your live / dev data**. The autouse truncate fixture in [tests/integration/conftest.py](../tests/integration/conftest.py) only wipes `wna_test`. Your seeded corridors, your submitted routes, and your admin-approved data in `wna` are preserved across test runs.
+
+Quick checks:
 
 ```bash
-uv run python -m app.corridors.seed --city abuja   # safe to re-run; idempotent
-uv run python -m app.corridors.seed --status       # quick check of what's loaded
+uv run python -m app.corridors.seed --status      # what's in the dev DB right now
 ```
 
-`--status` prints a one-liner per corridor with destination, status, and contributor — fastest way to confirm the bot has data before you message it.
+If you want to reset the test DB by hand (rare):
+
+```bash
+docker exec wna-postgres-1 psql -U wna -d postgres -c "DROP DATABASE wna_test;"
+# Next pytest run will recreate it.
+```
 
 ## Ownership Map
 

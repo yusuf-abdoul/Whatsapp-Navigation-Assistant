@@ -26,4 +26,4 @@ In chronological order:
 10. [Phase 2d — Admin review console](phase-2d-admin-review.md) — 2026-05-07
 11. [Phase 2e — Passthrough anchors](phase-2e-passthrough-anchors.md) — 2026-05-12
 12. [Phase 2f — Intermediate-anchor destinations](phase-2f-intermediate-destinations.md) — 2026-05-14
-6. [Phase 1d — Orchestrator integration](phase-1d-orchestrator-integration.md) — 2026-04-30
+13. [Phase 2g — Test database isolation](phase-2g-test-db-isolation.md) — 2026-05-18
