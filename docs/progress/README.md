@@ -27,3 +27,4 @@ In chronological order:
 11. [Phase 2e — Passthrough anchors](phase-2e-passthrough-anchors.md) — 2026-05-12
 12. [Phase 2f — Intermediate-anchor destinations](phase-2f-intermediate-destinations.md) — 2026-05-14
 13. [Phase 2g — Test database isolation](phase-2g-test-db-isolation.md) — 2026-05-18
+14. [Phase 3a — Abuse controls](phase-3a-abuse-controls.md) — 2026-05-30

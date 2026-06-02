@@ -21,6 +21,7 @@ import re
 
 import structlog
 
+from app.abuse import limits as abuse_limits
 from app.analytics.events import Event, emit
 from app.channel.base import ChannelAdapter, InboundMessage
 from app.corridors.db import session_factory
@@ -85,6 +86,18 @@ _CORRIDOR_JOIN_RADIUS_M = 2000
 
 async def handle(message: InboundMessage, channel: ChannelAdapter) -> None:
     emit(Event.FIRST_CONTACT_RECEIVED, user_id=message.user_id)
+
+    # Cheap abuse check first — if rate-limited, fail fast before any DB or
+    # LocationIQ work. Same call also bumps the counters.
+    if not await abuse_limits.check_and_record(message.user_id):
+        await channel.send_text(message.user_id, format_error(ErrorKind.RATE_LIMITED))
+        return
+
+    # Debounce accidental WhatsApp re-taps: same text within the cooldown
+    # window is silently ignored. Live-location shares aren't deduped.
+    if message.text and await abuse_limits.is_duplicate(message.user_id, message.text):
+        log.info("duplicate_query_ignored", user_id=message.user_id)
+        return
 
     session = await store.get(message.user_id) or SessionState(user_id=message.user_id)
 

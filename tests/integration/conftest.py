@@ -11,7 +11,8 @@ a clean slate. Two layers:
    stage data without committing.
 """
 
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Iterator
+from unittest.mock import AsyncMock, patch
 
 import pytest
 from sqlalchemy import text
@@ -44,6 +45,24 @@ async def _clean_corridor_tables() -> AsyncIterator[None]:
 
     db_module._engine = None
     db_module._session_factory = None
+
+
+@pytest.fixture(autouse=True)
+def _abuse_allows() -> Iterator[None]:
+    """Bypass the WhatsApp abuse controls during integration tests. Without
+    this, the identical-query cooldown and rate limit (backed by the real
+    Redis at ``redis_url``) carry state between tests and trip them up."""
+    with (
+        patch(
+            "app.flows.orchestrator.abuse_limits.check_and_record",
+            AsyncMock(return_value=True),
+        ),
+        patch(
+            "app.flows.orchestrator.abuse_limits.is_duplicate",
+            AsyncMock(return_value=False),
+        ),
+    ):
+        yield
 
 
 @pytest.fixture

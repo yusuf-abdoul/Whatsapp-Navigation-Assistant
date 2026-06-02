@@ -1,4 +1,4 @@
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Iterator
 from unittest.mock import AsyncMock, patch
 
 import fakeredis.aioredis
@@ -43,12 +43,21 @@ async def fake_redis() -> AsyncIterator[fakeredis.aioredis.FakeRedis]:
 
 
 @pytest.fixture(autouse=True)
-def _no_corridors() -> AsyncIterator[None]:
-    """Default: corridor lookups return nothing so tests exercise the LocationIQ
-    fallback path. Tests covering the corridor path live in tests/integration/."""
+def _no_corridors_and_abuse_allows() -> Iterator[None]:
+    """Defaults for unit tests: corridor lookups return nothing (exercises the
+    LocationIQ fallback path) AND the abuse controls always allow. Specific
+    tests override per-call."""
     with (
         patch("app.flows.orchestrator._lookup_corridor", AsyncMock(return_value=None)),
         patch("app.flows.orchestrator._try_corridor_reply", AsyncMock(return_value=False)),
+        patch(
+            "app.flows.orchestrator.abuse_limits.check_and_record",
+            AsyncMock(return_value=True),
+        ),
+        patch(
+            "app.flows.orchestrator.abuse_limits.is_duplicate",
+            AsyncMock(return_value=False),
+        ),
     ):
         yield
 
