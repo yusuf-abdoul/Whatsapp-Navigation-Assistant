@@ -1,3 +1,20 @@
+# Render deploy config.
+#
+# This file declares the public-facing web service. The Postgres and Redis
+# instances live OUTSIDE Render — Neon (Postgres) and Upstash (Redis) both
+# give us generous free tiers, are cheaper than Render's managed equivalents
+# past that, and survive Render service restarts cleanly.
+#
+# To bootstrap a deploy:
+#   1. Create a Neon project (Frankfurt region), copy the connection string.
+#   2. Create an Upstash Redis (Frankfurt), copy the connection string.
+#   3. Push this repo to GitHub.
+#   4. Render dashboard -> New Web Service -> connect this repo.
+#   5. Render will pick up render.yaml. Set every `sync: false` env var by
+#      hand in the dashboard (these are secrets, can't live in git).
+#   6. First deploy runs `alembic upgrade head` before the web process starts,
+#      so the Neon DB is migrated automatically.
+
 services:
   - type: web
     name: wna-api
@@ -5,11 +22,29 @@ services:
     plan: starter
     region: frankfurt
     healthCheckPath: /health
+    # Migrations run before traffic switches over. If this fails, the deploy
+    # is rolled back automatically.
+    preDeployCommand: alembic upgrade head
     envVars:
       - key: ENV
         value: production
+      - key: LOG_LEVEL
+        value: INFO
+
+      # Channel provider — default to Twilio for the soft launch. Switch to
+      # "meta" once Meta Business verification clears.
       - key: CHANNEL_PROVIDER
-        value: meta
+        value: twilio
+
+      # Twilio credentials (sandbox + production).
+      - key: TWILIO_ACCOUNT_SID
+        sync: false
+      - key: TWILIO_AUTH_TOKEN
+        sync: false
+      - key: TWILIO_WHATSAPP_FROM
+        sync: false
+
+      # Meta credentials (filled in when verification clears).
       - key: META_PHONE_NUMBER_ID
         sync: false
       - key: META_ACCESS_TOKEN
@@ -18,16 +53,29 @@ services:
         sync: false
       - key: META_APP_SECRET
         sync: false
+
+      # External data services.
+      - key: DATABASE_URL          # Neon — postgresql+asyncpg://...
+        sync: false
+      - key: REDIS_URL             # Upstash — rediss://...
+        sync: false
       - key: LOCATIONIQ_KEY
         sync: false
-      - key: REDIS_URL
-        fromService:
-          type: keyvalue
-          name: wna-redis
-          property: connectionString
 
-  - type: keyvalue
-    name: wna-redis
-    plan: starter
-    region: frankfurt
-    ipAllowList: []
+      # Web-session secret. Generate with `python -c "import secrets;
+      # print(secrets.token_urlsafe(48))"` and paste in the dashboard.
+      - key: SESSION_SECRET
+        sync: false
+      - key: WEB_SESSION_MAX_AGE_SECONDS
+        value: "1209600"
+
+      # Conservative defaults for abuse controls; tune in the dashboard
+      # without redeploying.
+      - key: RATE_LIMIT_PER_HOUR
+        value: "30"
+      - key: RATE_LIMIT_PER_DAY
+        value: "100"
+      - key: IDENTICAL_QUERY_COOLDOWN_SECONDS
+        value: "5"
+      - key: SESSION_TTL_SECONDS
+        value: "600"
