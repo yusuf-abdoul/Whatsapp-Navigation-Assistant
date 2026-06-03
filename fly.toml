@@ -1,0 +1,64 @@
+# Fly.io deploy config.
+#
+# Postgres and Redis live OUTSIDE Fly: Neon (Postgres) and Upstash (Redis),
+# both free tier at MVP scale. This file only declares the app process.
+#
+# Secrets are set with `fly secrets set NAME=value`, not in this file:
+#   DATABASE_URL, REDIS_URL, LOCATIONIQ_KEY, SESSION_SECRET,
+#   TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, TWILIO_WHATSAPP_FROM,
+#   META_PHONE_NUMBER_ID, META_ACCESS_TOKEN, META_WEBHOOK_VERIFY_TOKEN,
+#   META_APP_SECRET
+#
+# Bootstrap:
+#   fly launch --no-deploy --copy-config --name wna-api --region fra
+#   fly secrets set DATABASE_URL=... REDIS_URL=... LOCATIONIQ_KEY=... \
+#     SESSION_SECRET=... TWILIO_ACCOUNT_SID=... TWILIO_AUTH_TOKEN=... \
+#     TWILIO_WHATSAPP_FROM=...
+#   fly deploy
+
+app = "wna-api"
+primary_region = "fra"   # Frankfurt — closest Fly region to Nigeria.
+
+[build]
+  dockerfile = "Dockerfile"
+
+# Runs once per release, before traffic switches. If migrations fail the
+# deploy is rolled back automatically.
+[deploy]
+  release_command = "alembic upgrade head"
+
+# Public env, safe to commit. Secrets go through `fly secrets set`.
+[env]
+  ENV = "production"
+  LOG_LEVEL = "INFO"
+  CHANNEL_PROVIDER = "twilio"
+  WEB_SESSION_MAX_AGE_SECONDS = "1209600"
+  SESSION_TTL_SECONDS = "600"
+  RATE_LIMIT_PER_HOUR = "30"
+  RATE_LIMIT_PER_DAY = "100"
+  IDENTICAL_QUERY_COOLDOWN_SECONDS = "5"
+
+[http_service]
+  internal_port = 8000
+  force_https = true
+  # Always-on. Twilio webhooks fire any time of day; we can't afford a
+  # 1-3 second cold-start delay on the user's first message after an
+  # idle period.
+  auto_stop_machines = "off"
+  auto_start_machines = true
+  min_machines_running = 1
+
+  [[http_service.checks]]
+    grace_period = "10s"
+    interval = "30s"
+    method = "GET"
+    timeout = "5s"
+    path = "/health"
+
+# 256MB on a shared CPU. Postgres / Redis are external, so the app is light
+# (FastAPI + uvicorn + a couple of httpx clients). Bump to 512MB if memory
+# pressure shows up in `fly logs`.
+[[vm]]
+  cpu_kind = "shared"
+  cpus = 1
+  memory_mb = 256
