@@ -18,10 +18,12 @@ FROM python:3.12-slim
 WORKDIR /app
 COPY --from=builder /app/.venv /app/.venv
 COPY --from=builder /app/app /app/app
-# Alembic config + migrations are needed at runtime for the Render
-# `preDeployCommand: alembic upgrade head` hook.
+# Alembic config + migrations are needed at runtime for the
+# `release_command: alembic upgrade head` hook on Fly/Render.
 COPY alembic.ini /app/alembic.ini
 COPY alembic /app/alembic
+# Seed corridor YAMLs — used by `python -m app.corridors.seed` after deploy.
+COPY data /app/data
 
 ENV PATH="/app/.venv/bin:$PATH" \
     PYTHONUNBUFFERED=1 \
