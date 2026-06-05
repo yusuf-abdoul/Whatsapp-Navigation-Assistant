@@ -72,10 +72,7 @@ async def geocode(query: str, limit: int = 5) -> list[Place]:
         # match in OSM) would surface motor parks from Ibadan or Bauchi.
         fallback = await _search(base_params)
         before = len(fallback)
-        items = [
-            it for it in fallback
-            if _within_abuja_buffer(float(it["lat"]), float(it["lon"]))
-        ]
+        items = [it for it in fallback if _within_abuja_buffer(float(it["lat"]), float(it["lon"]))]
         log.info(
             "geocode_unbounded_fallback",
             query=expanded,

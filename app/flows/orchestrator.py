@@ -35,6 +35,7 @@ from app.corridors.repository import (
     nearest_anchor_in_corridor,
 )
 from app.errors import ErrorKind, WNAError
+from app.flows import recording
 from app.formatting.responses import (
     format_ambiguity,
     format_corridor,
@@ -101,6 +102,18 @@ async def handle(message: InboundMessage, channel: ChannelAdapter) -> None:
 
     session = await store.get(message.user_id) or SessionState(user_id=message.user_id)
 
+    # Trip recording captures both location shares and text — route everything
+    # through the recording handler when one is in progress. Exceptions
+    # (CANCEL, END_ROUTE) are still recognised by the global detector below
+    # so the contributor can always exit the flow.
+    if session.recording is not None and (
+        message.latitude is not None and message.longitude is not None
+    ):
+        await recording.handle(session, message, channel)
+        return
+    # For text in recording mode, fall through so CANCEL / END_ROUTE can
+    # short-circuit first; the recording handler picks it up after.
+
     if message.latitude is not None and message.longitude is not None:
         # A live location share is never an ambiguity pick — clear pending.
         if session.pending_clarification:
@@ -132,6 +145,21 @@ async def handle(message: InboundMessage, channel: ChannelAdapter) -> None:
         await store.delete(session.user_id)
         emit(Event.SESSION_ABANDONED, user_id=session.user_id, reason="user_cancel")
         await channel.send_text(session.user_id, _CANCEL_TEXT)
+        return
+
+    # Trip-recording intents. END_ROUTE finalises an in-progress recording;
+    # START_ROUTE begins a new one. Any other intent while recording flows
+    # through the recording handler (it knows what it's awaiting).
+    if result.intent == Intent.END_ROUTE:
+        await recording.end_recording(session, channel)
+        return
+
+    if session.recording is not None:
+        await recording.handle(session, message, channel)
+        return
+
+    if result.intent == Intent.START_ROUTE:
+        await recording.start(session, channel)
         return
 
     if result.intent == Intent.HELP:
@@ -517,7 +545,7 @@ def _resolve_clarification(session: SessionState, text: str) -> Place | None:
 
     lowered = cleaned.lower()
     for cand in candidates:
-        display = (cand.get("display_name") or cand.get("query") or "")
+        display = cand.get("display_name") or cand.get("query") or ""
         if not display:
             continue
         display_lower = display.lower()

@@ -56,6 +56,19 @@ _CANCEL = re.compile(
     re.IGNORECASE,
 )
 
+# Contributor begins a live trip-capture session over WhatsApp.
+_START_ROUTE = re.compile(
+    r"^\s*(?:start|begin|record)\s+(?:a\s+|the\s+|my\s+)?(?:trip|route|recording|journey)\s*[?.!]*\s*$",
+    re.IGNORECASE,
+)
+
+# Contributor finishes the live capture. Detected globally; the orchestrator
+# only acts on it when a recording is actually active.
+_END_ROUTE = re.compile(
+    r"^\s*(?:end(?:\s+(?:trip|route|recording))?|done|arrived|finished|complete\s+(?:trip|route))\s*[?.!]*\s*$",
+    re.IGNORECASE,
+)
+
 
 @dataclass(frozen=True)
 class IntentResult:
@@ -69,6 +82,12 @@ def detect(text: str) -> IntentResult:
         return IntentResult(Intent.UNKNOWN)
     if _CANCEL.match(text):
         return IntentResult(Intent.CANCEL)
+    # START_ROUTE / END_ROUTE precede HELP so "start trip" / "end" don't
+    # accidentally fall into HELP / DIRECTION semantics.
+    if _START_ROUTE.match(text):
+        return IntentResult(Intent.START_ROUTE)
+    if _END_ROUTE.match(text):
+        return IntentResult(Intent.END_ROUTE)
     if _HELP.match(text):
         return IntentResult(Intent.HELP)
     if m := _DIRECTION_WITH_FROM.match(text):
