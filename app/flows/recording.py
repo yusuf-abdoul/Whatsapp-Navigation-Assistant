@@ -120,6 +120,10 @@ async def handle(session: SessionState, message: InboundMessage, channel: Channe
         )
     elif state.awaiting == "transfer_decision":
         await _handle_transfer_decision(session, text, channel)
+    elif state.awaiting == "destination_location":
+        await _handle_destination_location(
+            session, message.latitude, message.longitude, has_location, channel
+        )
     elif state.awaiting == "confirmation":
         await _handle_confirmation(session, text, channel)
     else:  # pragma: no cover — exhaustive Literal makes this dead
@@ -197,7 +201,11 @@ async def _handle_leg_info(session: SessionState, text: str, channel: ChannelAda
     mode, cost_ngn = parsed
     state = session.recording
     assert state is not None
-    state.pending_leg = RecordedLeg(mode=mode, cost_ngn=cost_ngn)
+    # transfer=True when this leg starts at a vehicle-change point (contributor
+    # answered "changed" for the previous anchor). Flag is reset once consumed.
+    transfer = state.next_leg_is_transfer
+    state.pending_leg = RecordedLeg(mode=mode, cost_ngn=cost_ngn, transfer=transfer)
+    state.next_leg_is_transfer = False
     state.awaiting = "next_anchor_name"
     await store.put(session)
     await channel.send_text(
@@ -244,7 +252,10 @@ async def _handle_next_anchor_location(
     state = session.recording
     assert state is not None
 
-    # Append the new anchor and promote the pending leg to legs[].
+    # Append the new anchor as an endpoint (default). The next transfer_decision
+    # answer may reclassify it as a passthrough. Promote the pending leg exactly
+    # once — subsequent same-vehicle anchors on the same segment won't have a
+    # pending_leg to promote.
     name = state.pending_anchor_name or f"Stop {len(state.anchors) + 1}"
     state.anchors.append(RecordedAnchor(name=name, lat=lat, lon=lon))
     state.pending_anchor_name = None
@@ -252,9 +263,12 @@ async def _handle_next_anchor_location(
         state.legs.append(state.pending_leg)
         state.pending_leg = None
 
-    # Was that the destination they named at the start? Mark it implicitly.
-    # If yes, we still ask transfer_decision for the LAST leg (the one we
-    # just promoted) so the contributor confirms vehicle status.
+    # Contributor named a mid-anchor with the destination's name → treat as
+    # arrival, skip the transfer question, go straight to summary.
+    if _looks_like_destination(name, state.destination_name):
+        await _show_summary_and_confirm(session, channel)
+        return
+
     state.awaiting = "transfer_decision"
     await store.put(session)
     n = len(state.anchors)
@@ -271,29 +285,26 @@ async def _handle_transfer_decision(
 ) -> None:
     state = session.recording
     assert state is not None
-    lowered = text.lower()
+    lowered = text.lower().strip()
     if lowered in {"same", "same vehicle", "no", "stayed"}:
-        # Transfer flag applies to the NEXT leg, not the just-recorded one.
-        # We track this by NOT mutating the most-recent leg; the contributor's
-        # answer matters when they describe their next leg.
-        # For now, just advance.
-        state.awaiting = "leg_info"
+        # Same vehicle continues — the just-recorded anchor is a landmark on
+        # the current segment, not a segment endpoint. Fare already captured
+        # for this segment; no re-prompt.
+        if state.anchors:
+            state.anchors[-1].is_passthrough = True
+        state.awaiting = "next_anchor_name"
+        current_mode = state.legs[-1].mode if state.legs else "vehicle"
         await store.put(session)
         await channel.send_text(
             session.user_id,
-            "OK, same vehicle continues. What's the next leg's mode and fare?\n"
-            "(or 'end' if you've arrived)",
+            f"OK, same {current_mode} continues. Tell me when you reach the next stop "
+            "(say 'now at ...'), or 'end' if you've arrived.",
         )
     elif lowered in {"changed", "change", "switch", "switched", "transfer", "yes"}:
-        # Mark the NEXT leg as a transfer when it's recorded. We stash this
-        # by setting a sentinel on `pending_leg` once the next leg-info lands.
-        # Cleanest: store the pending flag on the state itself.
+        # New segment starts at this anchor — it stays as an endpoint. The
+        # next leg the contributor describes gets transfer=True.
+        state.next_leg_is_transfer = True
         state.awaiting = "leg_info"
-        # Use a marker we look for in _handle_leg_info.
-        if state.pending_leg is None:
-            state.pending_leg = RecordedLeg(mode="taxi", transfer=True)
-            # We'll overwrite mode/cost when the contributor sends leg info.
-            # Keep transfer=True as the sticky bit.
         await store.put(session)
         await channel.send_text(
             session.user_id,
@@ -324,11 +335,17 @@ async def _handle_confirmation(session: SessionState, text: str, channel: Channe
 
 
 async def end_recording(session: SessionState, channel: ChannelAdapter) -> None:
-    """Build the summary and ask for confirmation.
+    """Contributor said 'end'. Prompt for destination location if we still
+    need it, otherwise show the summary.
 
-    Caller has confirmed an END_ROUTE intent fired while ``session.recording``
-    is set. If the recording is too short to be a real corridor we tell the
-    contributor and discard.
+    Cases:
+    - No recording running → gentle "you're not recording" nudge.
+    - Awaiting a mid-anchor location share (they said 'now at X' but never
+      shared) → nudge them to finish that step first.
+    - pending_leg is set OR last anchor's name isn't the destination → we
+      still need the destination's location. Transition to
+      ``destination_location`` and prompt.
+    - Everything captured → build summary directly.
     """
     state = session.recording
     if state is None:
@@ -337,7 +354,14 @@ async def end_recording(session: SessionState, channel: ChannelAdapter) -> None:
         )
         return
 
-    if len(state.anchors) < 2 or len(state.legs) < 1:
+    # Too early: no anchors yet, no leg described yet, or still in the
+    # intro questions.
+    intro_states = {"destination", "origin_name", "origin_location"}
+    if (
+        not state.anchors
+        or state.awaiting in intro_states
+        or (not state.legs and state.pending_leg is None)
+    ):
         session.recording = None
         await store.put(session)
         await channel.send_text(
@@ -347,35 +371,118 @@ async def end_recording(session: SessionState, channel: ChannelAdapter) -> None:
         )
         return
 
-    # Drop any half-built leg/anchor that hadn't been finalised.
-    state.pending_leg = None
-    state.pending_anchor_name = None
-
-    # Generate the human-facing summary.
-    lines = ["Recorded:"]
-    for i, leg in enumerate(state.legs):
-        from_a = state.anchors[i].name
-        to_a = (
-            state.anchors[i + 1].name
-            if i + 1 < len(state.anchors)
-            else state.destination_name or "Destination"
+    # Contributor said "now at X" but hadn't shared its location yet — don't
+    # discard, ask them to complete or cancel explicitly.
+    if state.awaiting == "next_anchor_location" and state.pending_anchor_name:
+        await channel.send_text(
+            session.user_id,
+            f"Share your live location to pin {state.pending_anchor_name} first, "
+            "or send 'cancel' to discard the recording.",
         )
-        duration = _duration_min(state.anchors, i)
-        bits: list[str] = [f"{leg.mode}"]
-        if leg.cost_ngn:
-            bits.append(f"₦{leg.cost_ngn}")
-        if duration is not None:
-            bits.append(f"~{duration} min")
-        if leg.transfer:
-            bits.append("changed")
-        lines.append(f"{i + 1}. {from_a} → {to_a} ({', '.join(bits)})")
+        return
 
-    summary = "\n".join(lines)
+    # Do we still need to capture the destination's live location?
+    last_anchor_name = state.anchors[-1].name if state.anchors else ""
+    at_destination = _looks_like_destination(last_anchor_name, state.destination_name)
+    needs_destination = state.pending_leg is not None or not at_destination
+
+    if not needs_destination:
+        await _show_summary_and_confirm(session, channel)
+        return
+
+    # A 'changed' with no leg described yet: we need the new segment's fare
+    # before we can close. Nudge for it.
+    if state.next_leg_is_transfer and state.pending_leg is None:
+        state.awaiting = "leg_info"
+        await store.put(session)
+        await channel.send_text(
+            session.user_id,
+            f"Before I can finish, tell me the mode + fare for the leg from "
+            f"{last_anchor_name} to {state.destination_name or 'the destination'}.",
+        )
+        return
+
+    # Otherwise (pending_leg set OR mid-segment same-vehicle to destination):
+    # we have a leg for the final segment already, we just need the
+    # destination's coordinates.
+    state.pending_anchor_name = state.destination_name or "Destination"
+    state.awaiting = "destination_location"
+    await store.put(session)
+    await channel.send_text(
+        session.user_id,
+        f"Almost done — share your live location to pin "
+        f"{state.pending_anchor_name}, the destination.",
+    )
+
+
+async def _handle_destination_location(
+    session: SessionState,
+    lat: float | None,
+    lon: float | None,
+    has_location: bool,
+    channel: ChannelAdapter,
+) -> None:
+    """Receive the destination's live location, close the final segment,
+    and show the summary."""
+    if not has_location or lat is None or lon is None:
+        await channel.send_text(
+            session.user_id,
+            "I need your live location for the destination. "
+            "Tap the paperclip → Location → Send your current location.",
+        )
+        return
+    state = session.recording
+    assert state is not None
+    name = state.pending_anchor_name or state.destination_name or "Destination"
+    state.anchors.append(RecordedAnchor(name=name, lat=lat, lon=lon))
+    state.pending_anchor_name = None
+    if state.pending_leg is not None:
+        state.legs.append(state.pending_leg)
+        state.pending_leg = None
+    await _show_summary_and_confirm(session, channel)
+
+
+async def _show_summary_and_confirm(
+    session: SessionState, channel: ChannelAdapter
+) -> None:
+    """Build the segment view of the recording, show it, and prompt for confirm."""
+    state = session.recording
+    assert state is not None
+    segments = _build_segments(state)
+
+    if not segments:
+        session.recording = None
+        await store.put(session)
+        await channel.send_text(
+            session.user_id,
+            "Not enough recorded to build a route. Discarded.",
+        )
+        return
+
+    lines = ["Recorded:"]
+    for i, seg in enumerate(segments):
+        bits: list[str] = [seg["leg"].mode]
+        if seg["leg"].cost_ngn:
+            bits.append(f"₦{seg['leg'].cost_ngn}")
+        if seg["duration_min"] is not None:
+            bits.append(f"~{seg['duration_min']} min")
+        if seg["leg"].transfer:
+            bits.append("changed")
+        header = f"{seg['from_anchor']} → {seg['to_anchor']}"
+        if seg["passthroughs"]:
+            header = (
+                f"{seg['from_anchor']} → "
+                + " → ".join(seg["passthroughs"])
+                + f" → {seg['to_anchor']}"
+            )
+        lines.append(f"{i + 1}. {header} ({', '.join(bits)})")
+
     state.awaiting = "confirmation"
     await store.put(session)
     await channel.send_text(
         session.user_id,
-        summary + "\n\nReply 'confirm' to submit for review, or 'cancel' to discard.",
+        "\n".join(lines)
+        + "\n\nReply 'confirm' to submit for review, or 'cancel' to discard.",
     )
 
 
@@ -391,26 +498,20 @@ async def _submit(session: SessionState, channel: ChannelAdapter) -> None:
     destination_name = state.destination_name or state.anchors[-1].name
 
     segments_input: list[SegmentInput] = []
-    for i, leg in enumerate(state.legs):
-        from_anchor = state.anchors[i].name
-        # If we ran out of anchors (contributor said 'end' without a final
-        # location share for the destination), use the destination name as
-        # the to_anchor placeholder — submission validation will reject it
-        # if it isn't in the anchors list, which is the right outcome.
-        to_anchor = state.anchors[i + 1].name if i + 1 < len(state.anchors) else destination_name
-        duration = _duration_min(state.anchors, i)
+    for seg in _build_segments(state):
         segments_input.append(
             SegmentInput(
-                from_anchor=from_anchor,
-                to_anchor=to_anchor,
-                mode=leg.mode,
-                # Renderer synthesises ("Take a {mode} to {to_anchor}") — the
-                # instruction text we store here is only a fallback / audit
-                # trail. Kept short.
-                instruction=f"Take a {leg.mode} to {to_anchor}.",
-                transfer=leg.transfer,
-                cost_ngn=leg.cost_ngn,
-                duration_min=duration,
+                from_anchor=seg["from_anchor"],
+                to_anchor=seg["to_anchor"],
+                mode=seg["leg"].mode,
+                # Renderer synthesises ("Take a {mode} to {to_anchor}") from
+                # the structured fields — the stored instruction is a short
+                # fallback / audit trail.
+                instruction=f"Take a {seg['leg'].mode} to {seg['to_anchor']}.",
+                transfer=seg["leg"].transfer,
+                cost_ngn=seg["leg"].cost_ngn,
+                duration_min=seg["duration_min"],
+                passthroughs=seg["passthroughs"],
             )
         )
 
@@ -469,17 +570,73 @@ def _strip_anchor_prefix(text: str) -> str:
     return _ANCHOR_PREFIX_RE.sub("", text).strip() or text.strip()
 
 
-def _duration_min(anchors: list[RecordedAnchor], leg_index: int) -> int | None:
-    """Compute minutes between two consecutive anchor timestamps."""
-    if leg_index + 1 >= len(anchors):
-        return None
-    delta = anchors[leg_index + 1].ts - anchors[leg_index].ts
+def _duration_min_between(
+    start: RecordedAnchor, end: RecordedAnchor
+) -> int | None:
+    """Minutes between two anchor timestamps, floor-clamped to 1."""
+    delta = end.ts - start.ts
     minutes = round(delta.total_seconds() / 60)
     return max(1, minutes)
 
 
+def _norm(text: str | None) -> str:
+    return (text or "").strip().lower()
+
+
+def _looks_like_destination(candidate: str, destination_name: str | None) -> bool:
+    """True when ``candidate`` matches the recording's destination name.
+
+    Loose comparison: case + whitespace only. Alias / token-subset matching is
+    handled at submission time (see ``app/corridors/submission.py``); at this
+    stage we only need to recognise "the contributor typed the destination
+    name" so we skip the transfer-decision prompt at the final anchor.
+    """
+    return bool(destination_name) and _norm(candidate) == _norm(destination_name)
+
+
+def _build_segments(state: RecordingState) -> list[dict]:  # type: ignore[type-arg]
+    """Group anchors + legs into segments for display / persistence.
+
+    Endpoints are anchors where ``is_passthrough=False`` — the origin, the
+    destination, and any anchor at a vehicle change. The i-th endpoint pair
+    ``(endpoints[i], endpoints[i+1])`` defines segment i; anchors strictly
+    between them (all passthroughs) become the segment's passthrough list.
+    Duration = wall-clock delta between the segment's two endpoints. Each
+    segment consumes one entry from ``state.legs`` in order.
+    """
+    if len(state.anchors) < 2 or not state.legs:
+        return []
+
+    endpoint_indices = [i for i, a in enumerate(state.anchors) if not a.is_passthrough]
+    # Guarantee the last anchor closes a segment even if flagged passthrough.
+    if endpoint_indices and endpoint_indices[-1] != len(state.anchors) - 1:
+        endpoint_indices.append(len(state.anchors) - 1)
+
+    segments: list[dict] = []  # type: ignore[type-arg]
+    for seg_idx in range(len(endpoint_indices) - 1):
+        if seg_idx >= len(state.legs):
+            break
+        start_i = endpoint_indices[seg_idx]
+        end_i = endpoint_indices[seg_idx + 1]
+        passthrough_names = [state.anchors[j].name for j in range(start_i + 1, end_i)]
+        segments.append(
+            {
+                "from_anchor": state.anchors[start_i].name,
+                "to_anchor": state.anchors[end_i].name,
+                "passthroughs": passthrough_names,
+                "leg": state.legs[seg_idx],
+                "duration_min": _duration_min_between(
+                    state.anchors[start_i], state.anchors[end_i]
+                ),
+            }
+        )
+    return segments
+
+
 # Re-export for tests
 __all__ = [
+    "_build_segments",
+    "_looks_like_destination",
     "_parse_leg",
     "_strip_anchor_prefix",
     "end_recording",

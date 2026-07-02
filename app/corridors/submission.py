@@ -209,28 +209,166 @@ async def create_pending(
 async def _upsert_anchors(
     db: AsyncSession, raw_anchors: Iterable[AnchorInput], city: str
 ) -> dict[str, Anchor]:
-    """Upsert anchors by (name, city). First-contributor sets the coordinates.
+    """Upsert anchors by (name, city), or reuse an existing anchor that's the
+    same place under a different name.
 
-    Mutation rules for an EXISTING anchor:
-    - ``lat`` / ``lon`` are NOT overwritten — a pending submission must not be
-      able to silently move a pin that other corridors already depend on. The
-      admin review console (Phase 2d) is the only path to correct coordinates.
-    - ``aliases`` ARE merged. New aliases are additive and low-risk; the more
-      local names we collect for the same place, the better the lookup works.
+    Match precedence:
+    1. Exact ``(name, city)`` — the historical case.
+    2. Alias match — new name already listed in an existing anchor's aliases.
+    3. Token-subsequence match + geographic proximity — e.g. ``Shoprite
+       Lugbe`` (existing) vs ``Shoprite Lugbe Bridge`` (new). One's tokenised
+       name must be a contiguous run inside the other, AND the coordinates
+       must be within ``_ANCHOR_MERGE_RADIUS_M``. Both required to avoid
+       false-positive merges (a "Wuse Market" in Wuse vs a hypothetical
+       "Wuse Market" further out would fail the proximity check).
+    4. Synonym-normalised token-subsequence match + proximity — cheap
+       dictionary of Nigerian landmark synonyms (see ``_LANDMARK_SYNONYMS``).
+       Catches ``Police Signpost`` ↔ ``Police Signboard`` in the same area.
+
+    On any match the incoming name is added as an alias of the existing anchor
+    (unless it's already present). Coordinates are never overwritten — the
+    admin console is the only path to correct pin drift.
     """
     by_name: dict[str, Anchor] = {}
     for raw in raw_anchors:
+        # 1. Exact name match.
         existing = (
             await db.execute(select(Anchor).where(Anchor.name == raw.name, Anchor.city == city))
         ).scalar_one_or_none()
+
+        # 2/3/4. Look for a plausible same-place match under a different name.
+        if existing is None:
+            existing = await _find_same_place(db, city, raw)
+
         if existing is None:
             anchor = Anchor(name=raw.name, lat=raw.lat, lon=raw.lon, city=city, aliases=raw.aliases)
             db.add(anchor)
         else:
             # Coordinates intentionally NOT updated — reviewer-only path.
-            merged = sorted(set(existing.aliases) | set(raw.aliases))
-            existing.aliases = merged
+            new_aliases = set(existing.aliases) | set(raw.aliases)
+            # If we matched an existing anchor under a different name, record
+            # the incoming name as an alias so future lookups succeed directly.
+            if raw.name.strip().lower() != existing.name.strip().lower():
+                new_aliases.add(raw.name.strip().lower())
+            existing.aliases = sorted(new_aliases)
             anchor = existing
         by_name[raw.name] = anchor
     await db.flush()
     return by_name
+
+
+# --- Same-place matching --------------------------------------------------
+#
+# Small dictionary of Nigerian landmark synonyms — pairs of tokens that name
+# the same physical feature when they share a neighbourhood. Kept short and
+# obvious; extend as the corpus grows. Applied both directions.
+_LANDMARK_SYNONYMS: dict[str, set[str]] = {
+    "signpost": {"signboard", "sign-post", "signage"},
+    "signboard": {"signpost", "sign-board"},
+    "bridge": {"overhead", "flyover"},
+    "junction": {"roundabout", "intersection"},
+    "estate": {"housing"},
+}
+
+# Merge radius. An existing anchor within this distance of the incoming
+# coordinates, whose tokenised name overlaps, is treated as the same place.
+_ANCHOR_MERGE_RADIUS_M = 800
+
+
+def _tokens(name: str) -> list[str]:
+    """Lowercase, strip punctuation, split on whitespace."""
+    cleaned = "".join(c if c.isalnum() or c.isspace() else " " for c in name.lower())
+    return [t for t in cleaned.split() if t]
+
+
+def _is_token_subsequence(shorter: list[str], longer: list[str]) -> bool:
+    """True when ``shorter`` appears as a contiguous run inside ``longer``."""
+    if not shorter or len(shorter) > len(longer):
+        return False
+    for start in range(len(longer) - len(shorter) + 1):
+        if longer[start : start + len(shorter)] == shorter:
+            return True
+    return False
+
+
+def _synonymise(tokens: list[str]) -> list[list[str]]:
+    """Return the token list plus one variant per known synonym substitution.
+
+    Kept simple: at most one token replaced per variant. Enough to catch
+    ``[police, signpost]`` matching ``[police, signboard]`` without exploding
+    the search space.
+    """
+    variants = [tokens]
+    for i, t in enumerate(tokens):
+        for syn in _LANDMARK_SYNONYMS.get(t, set()):
+            variant = list(tokens)
+            variant[i] = syn
+            variants.append(variant)
+    return variants
+
+
+def _haversine_m(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
+    """Great-circle distance in metres."""
+    from math import asin, cos, radians, sin, sqrt
+
+    r = 6_371_000.0
+    p1, p2 = radians(lat1), radians(lat2)
+    dp, dl = radians(lat2 - lat1), radians(lon2 - lon1)
+    a = sin(dp / 2) ** 2 + cos(p1) * cos(p2) * sin(dl / 2) ** 2
+    return 2 * r * asin(sqrt(a))
+
+
+async def _find_same_place(
+    db: AsyncSession, city: str, raw: AnchorInput
+) -> Anchor | None:
+    """Return an existing anchor that likely names the same physical place.
+
+    Runs three checks in order, each requiring proximity within
+    ``_ANCHOR_MERGE_RADIUS_M`` to guard against name-only false positives:
+    alias match, token-subsequence match, synonym-normalised subsequence match.
+    """
+    candidates: list[Anchor] = list(
+        (await db.execute(select(Anchor).where(Anchor.city == city))).scalars().all()
+    )
+    if not candidates:
+        return None
+
+    raw_name_lower = raw.name.strip().lower()
+    raw_tokens = _tokens(raw.name)
+
+    def _close_enough(a: Anchor) -> bool:
+        return _haversine_m(raw.lat, raw.lon, a.lat, a.lon) <= _ANCHOR_MERGE_RADIUS_M
+
+    # 2. Alias match.
+    for a in candidates:
+        if raw_name_lower in {alias.lower() for alias in a.aliases} and _close_enough(a):
+            return a
+
+    # 3. Token-subsequence match.
+    for a in candidates:
+        cand_tokens = _tokens(a.name)
+        if not cand_tokens:
+            continue
+        shorter, longer = (
+            (raw_tokens, cand_tokens)
+            if len(raw_tokens) <= len(cand_tokens)
+            else (cand_tokens, raw_tokens)
+        )
+        if _is_token_subsequence(shorter, longer) and _close_enough(a):
+            return a
+
+    # 4. Synonym-normalised subsequence match.
+    for a in candidates:
+        cand_tokens = _tokens(a.name)
+        if not cand_tokens:
+            continue
+        for raw_variant in _synonymise(raw_tokens):
+            for cand_variant in _synonymise(cand_tokens):
+                shorter, longer = (
+                    (raw_variant, cand_variant)
+                    if len(raw_variant) <= len(cand_variant)
+                    else (cand_variant, raw_variant)
+                )
+                if _is_token_subsequence(shorter, longer) and _close_enough(a):
+                    return a
+    return None

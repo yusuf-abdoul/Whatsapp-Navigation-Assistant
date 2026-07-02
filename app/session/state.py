@@ -29,13 +29,20 @@ class RecordedAnchor(BaseModel):
     # Server timestamp at the moment the contributor shared their location
     # for this anchor. Inter-anchor wall-clock deltas give us segment durations.
     ts: datetime = Field(default_factory=lambda: datetime.now(UTC))
+    # A "passthrough" anchor sits INSIDE the current segment — the contributor
+    # kept the same vehicle through it. Endpoints (is_passthrough=False) are
+    # the origin, destination, and any anchor where the contributor changed
+    # vehicles. At submission time endpoints delimit segments; passthroughs
+    # go into the segment's `passthroughs` list.
+    is_passthrough: bool = False
 
 
 class RecordedLeg(BaseModel):
     mode: str
     cost_ngn: int | None = None
-    # When the next leg is same-mode but a different vehicle (e.g. swap taxis
-    # at a junction), the contributor says "changed" → transfer=True.
+    # True when the leg starts at a vehicle-change point (contributor said
+    # "changed" for the previous anchor). Flows through to the persisted
+    # segment for renderer formatting.
     transfer: bool = False
 
 
@@ -48,6 +55,7 @@ RecordingAwaiting = Literal[
     "next_anchor_name",
     "next_anchor_location",
     "transfer_decision",
+    "destination_location",
     "confirmation",
 ]
 
@@ -62,6 +70,9 @@ class RecordingState(BaseModel):
     # Holds the next anchor's name between `next_anchor_name` and
     # `next_anchor_location`. Promoted to `anchors` once the location share lands.
     pending_anchor_name: str | None = None
+    # Set by "changed" in transfer_decision — the NEXT leg described becomes
+    # transfer=True. Reset once consumed in leg_info.
+    next_leg_is_transfer: bool = False
     awaiting: RecordingAwaiting = "destination"
 
 

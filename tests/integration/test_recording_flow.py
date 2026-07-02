@@ -117,6 +117,12 @@ def test_strip_anchor_prefix() -> None:
 
 
 async def test_full_recording_persists_pending_corridor(fake_redis, channel) -> None:
+    """3-segment route with a vehicle change at each intermediate anchor.
+
+    After each 'changed' answer, the next leg's mode + fare is asked (one
+    fare per segment). At the destination anchor the bot skips the
+    transfer-decision prompt and goes straight to the summary.
+    """
     # Step 1: start
     await handle(_text("start trip"), channel)
     assert "destination" in channel.texts[-1][1].lower()
@@ -131,27 +137,24 @@ async def test_full_recording_persists_pending_corridor(fake_redis, channel) -> 
     await handle(_loc(8.95, 7.36), channel)
     assert "anchor 1" in channel.texts[-1][1].lower()
 
-    # Step 4: leg 1 info + next anchor
+    # Step 4: leg 1 info + next anchor + changed vehicle
     await handle(_text("bike 200"), channel)
     await handle(_text("now at Police Signpost"), channel)
     await handle(_loc(8.94, 7.36), channel)
     assert "anchor 2" in channel.texts[-1][1].lower()
     await handle(_text("changed"), channel)
 
-    # Step 5: leg 2 info + next anchor
+    # Step 5: leg 2 info + next anchor + changed vehicle
     await handle(_text("taxi 400"), channel)
     await handle(_text("now at Berger"), channel)
     await handle(_loc(9.04, 7.46), channel)
     await handle(_text("changed"), channel)
 
-    # Step 6: leg 3 info + final anchor
+    # Step 6: leg 3 info + final anchor (destination — bot recognises the
+    # name matches destination_name and jumps straight to summary).
     await handle(_text("taxi 300"), channel)
     await handle(_text("now at Banex Plaza"), channel)
     await handle(_loc(9.075, 7.482), channel)
-    await handle(_text("same"), channel)
-
-    # Step 7: end → summary → confirm
-    await handle(_text("end"), channel)
     summary = channel.texts[-1][1]
     assert "Recorded:" in summary
     assert "AMAC Market" in summary and "Banex Plaza" in summary
@@ -267,6 +270,127 @@ async def test_end_before_start_is_a_no_op(fake_redis, channel) -> None:
 
 
 # --- normal query intents are blocked mid-recording ---------------------
+
+
+# --- Bug fixes: destination location capture + passthrough model -------
+
+
+async def test_end_prompts_for_destination_location_when_pending_leg(
+    fake_redis, channel
+) -> None:
+    """Bug 1: contributor at destination said 'end' after describing the last
+    leg. Bot should ask for the destination's live location instead of
+    silently dropping the pending leg."""
+    await handle(_text("start trip"), channel)
+    await handle(_text("Shoprite Lugbe"), channel)
+    await handle(_text("Police Signpost"), channel)
+    await handle(_loc(8.972, 7.364), channel)
+    await handle(_text("taxi 300"), channel)  # pending_leg is set
+
+    channel.texts.clear()
+    await handle(_text("end"), channel)
+    prompt = channel.texts[-1][1]
+    assert "share your live location" in prompt.lower()
+    assert "Shoprite Lugbe" in prompt
+
+    # Now sharing location closes the segment and shows the summary.
+    await handle(_loc(8.99, 7.39), channel)
+    summary = channel.texts[-1][1]
+    assert "Recorded:" in summary
+    assert "Police Signpost" in summary and "Shoprite Lugbe" in summary
+
+
+async def test_same_vehicle_does_not_ask_for_new_fare(fake_redis, channel) -> None:
+    """Bug 2: on 'same', the anchor is a passthrough on the current segment.
+    Fare stays the segment's fare — no re-prompt for mode/cost."""
+    await handle(_text("start trip"), channel)
+    await handle(_text("Shoprite Lugbe"), channel)
+    await handle(_text("Police Signpost"), channel)
+    await handle(_loc(8.972, 7.364), channel)
+    await handle(_text("taxi 300"), channel)
+    await handle(_text("now at Car Wash Bridge"), channel)
+    await handle(_loc(8.976, 7.372), channel)
+    channel.texts.clear()
+    await handle(_text("same"), channel)
+
+    # The reply must NOT ask for a mode+fare — that fare already belongs to
+    # the segment. It should ask for the next stop or end.
+    reply = channel.texts[-1][1].lower()
+    assert "next leg" not in reply
+    assert "fare" not in reply
+    assert "next stop" in reply or "end" in reply
+
+
+async def test_same_vehicle_marks_anchor_as_passthrough(fake_redis, channel) -> None:
+    """The just-recorded anchor is now a passthrough on the current segment."""
+    await handle(_text("start trip"), channel)
+    await handle(_text("Shoprite Lugbe"), channel)
+    await handle(_text("Police Signpost"), channel)
+    await handle(_loc(8.972, 7.364), channel)
+    await handle(_text("taxi 300"), channel)
+    await handle(_text("now at Car Wash Bridge"), channel)
+    await handle(_loc(8.976, 7.372), channel)
+    await handle(_text("same"), channel)
+
+    state = await store.get(USER)
+    assert state is not None and state.recording is not None
+    # Car Wash Bridge is the 2nd anchor; must be marked passthrough.
+    assert state.recording.anchors[-1].is_passthrough is True
+    # Only ONE leg captured so far — same vehicle = same segment.
+    assert len(state.recording.legs) == 1
+
+
+async def test_recording_with_passthroughs_persists_one_segment(
+    fake_redis, channel
+) -> None:
+    """End-to-end: 4 anchors, 2 'same' answers, one leg → one segment with
+    2 passthroughs in the DB."""
+    await handle(_text("start trip"), channel)
+    await handle(_text("Shoprite Lugbe"), channel)
+    await handle(_text("Police Signpost"), channel)
+    await handle(_loc(8.972, 7.364), channel)
+    await handle(_text("taxi 300"), channel)
+    await handle(_text("now at Car Wash Bridge"), channel)
+    await handle(_loc(8.976, 7.372), channel)
+    await handle(_text("same"), channel)
+    await handle(_text("now at Federal Housing Bridge"), channel)
+    await handle(_loc(8.978, 7.375), channel)
+    await handle(_text("same"), channel)
+    await handle(_text("end"), channel)
+    # end prompts for destination location.
+    assert "share your live location" in channel.texts[-1][1].lower()
+    await handle(_loc(8.99, 7.39), channel)
+    await handle(_text("confirm"), channel)
+    assert "pending review" in channel.texts[-1][1].lower()
+
+    # Verify DB shape.
+    from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
+
+    from app.config import get_settings
+
+    engine = create_async_engine(get_settings().database_url)
+    try:
+        async with async_sessionmaker(engine, expire_on_commit=False)() as db:
+            [corridor] = (await db.execute(select(Corridor))).scalars().all()
+            segments = (
+                (
+                    await db.execute(
+                        select(Segment)
+                        .where(Segment.corridor_id == corridor.id)
+                        .order_by(Segment.sequence)
+                    )
+                )
+                .scalars()
+                .all()
+            )
+            # ONE segment (no vehicle changes), fare ₦300.
+            assert len(segments) == 1
+            assert segments[0].mode == "taxi"
+            assert segments[0].cost_ngn == 300
+            # The two intermediate anchors are passthroughs on this segment.
+            assert len(segments[0].passthrough_anchor_ids) == 2
+    finally:
+        await engine.dispose()
 
 
 async def test_direction_query_during_recording_is_routed_to_recording_handler(
