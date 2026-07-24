@@ -164,6 +164,30 @@ def test_admin_queue_non_admin_user_redirects_to_login(fake_redis, captured_send
     assert r.headers["location"] == "/login"
 
 
+def test_verify_redirects_admin_to_admin_queue(fake_redis, captured_send, client) -> None:
+    """After OTP verify, admins land on /admin, not /submit."""
+    wa = _sign_in(client, captured_send, "08123456099", "Admin Landing")
+    _promote_to_admin(wa)
+    client.post("/logout")
+    client.post("/login", data={"wa_number": "08123456099"})
+    _, code = captured_send[-1]
+    r = client.post("/verify", data={"kind": "login", "wa_number": wa, "code": code})
+    assert r.status_code == 204
+    assert r.headers.get("HX-Redirect") == "/admin"
+
+
+def test_verify_redirects_regular_user_to_submit(fake_redis, captured_send, client) -> None:
+    """Non-admin sign-in still lands on /submit."""
+    client.post("/signup", data={"name": "Regular", "wa_number": "08123456098"})
+    _, code = captured_send[-1]
+    r = client.post(
+        "/verify",
+        data={"kind": "signup", "wa_number": "+2348123456098", "code": code, "name": "Regular"},
+    )
+    assert r.status_code == 204
+    assert r.headers.get("HX-Redirect") == "/submit"
+
+
 # --- happy path: queue + approve + reject + edit coords -----------------
 
 

@@ -227,8 +227,9 @@ async def verify_post(
 
     auth_session.login(request, user)
     # HTMX honors HX-Redirect to do a client-side full navigation.
+    # Admins land in the review queue; everyone else in the submit form.
     response = HTMLResponse("", status_code=204)
-    response.headers["HX-Redirect"] = "/submit"
+    response.headers["HX-Redirect"] = "/admin" if user.is_admin else "/submit"
     return response
 
 
