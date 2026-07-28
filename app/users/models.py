@@ -2,7 +2,8 @@
 
 Identity is the WhatsApp number (E.164, e.g. "+2348123456789"). Authentication
 is via OTP delivered to that number — no passwords. ``is_admin`` gates the
-review console; flip it manually in SQL until we have a proper admin tool.
+review console; grant it with ``python -m app.users.admin_cli promote <wa>``
+(see [app/users/admin_cli.py](../app/users/admin_cli.py)).
 
 Shares the SQLAlchemy ``Base`` declared in ``app.corridors.models`` so a single
 metadata feeds Alembic. (Future cleanup: extract Base to its own module.)
