@@ -24,6 +24,15 @@ def test_landing_renders_hero_and_ctas(client: TestClient) -> None:
     assert "Contribute a route" in body
 
 
+def test_landing_shows_qr_code(client: TestClient) -> None:
+    """The scannable QR aside is present with its caption + URL."""
+    body = client.get("/").text
+    assert "Scan to open on your phone" in body
+    assert "wna-api.fly.dev" in body
+    # Sanity-check that the inline SVG is what's rendering the QR.
+    assert 'class="segno' in body
+
+
 def test_landing_includes_htmx_and_tailwind(client: TestClient) -> None:
     body = client.get("/").text
     assert "tailwindcss" in body
