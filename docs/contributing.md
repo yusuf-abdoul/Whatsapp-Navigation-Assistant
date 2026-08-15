@@ -1,10 +1,15 @@
-# Contributing
+# Contributing — deep dive
+
+Root [CONTRIBUTING.md](../CONTRIBUTING.md) covers the basics. This page has
+the extra material that only matters once you're actually working on the
+codebase: seed data, testing webhooks, how the test DB is isolated, style
+notes.
 
 ## Local Setup
 
 ```bash
 uv sync
-cp .env.example .env                  # fill in secrets from 1Password
+cp .env.example .env                  # fill in secrets (see .env.example)
 docker compose up -d                  # Postgres + Redis
 uv run alembic upgrade head           # apply migrations
 uv run python -m app.corridors.seed   # load seed corridors
@@ -38,21 +43,32 @@ docker exec wna-postgres-1 psql -U wna -d postgres -c "DROP DATABASE wna_test;"
 # Next pytest run will recreate it.
 ```
 
-## Ownership Map
+## Module map
 
-| You | You own |
+The code is split so most changes touch one directory. When you're unsure
+where a change belongs, this is the rough breakdown:
+
+| Directory | What lives here |
 |---|---|
-| BE-1 | `app/channel/`, `app/intent/`, `app/flows/`, `app/formatting/` |
-| BE-2 | `app/resolver/`, `app/routing/`, `app/session/`, `app/abuse/` |
-| Shared | `app/analytics/`, `app/config.py`, `app/errors.py`, `tests/` |
-| Ops | `Dockerfile`, `render.yaml`, `.github/`, deploys, secrets |
-| PM | `data/aliases/`, `data/qa_routes/`, GitHub issues |
+| `app/channel/` | WhatsApp adapters (Meta Cloud API, Twilio sandbox) |
+| `app/intent/` | Parse incoming messages into intents |
+| `app/flows/` | Recording, query, admin conversation flows |
+| `app/formatting/` | Human-facing reply text |
+| `app/resolver/` | Origin / destination resolution (landmark, address, GPS) |
+| `app/routing/` | Corridor lookup + response building |
+| `app/session/` | Redis-backed conversation state |
+| `app/abuse/` | Rate limits and cooldowns |
+| `app/corridors/` | Anchor + corridor models, repository, seed loader |
+| `app/web/` | Server-rendered pages (submission form, admin console) |
+| `app/auth/` | WhatsApp-OTP web sign-in |
+| `data/corridors/` | YAML seed corridors, per city |
 
-Cross-module PRs need approval from both owners.
+Cross-module PRs get an extra pair of eyes on the review — that's it, no
+formal ownership map.
 
 ## Branching
 
-- `main` is protected. Never push directly.
+- `main` is the default branch and stays green.
 - Feature branches: `feat/<short-name>`, `fix/<short-name>`, `chore/<short-name>`.
 - Open a PR when ready for review.
 

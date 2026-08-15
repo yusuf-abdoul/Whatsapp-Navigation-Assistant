@@ -21,8 +21,8 @@ report, a new corridor for your neighbourhood, a fix, or a feature.
 Prerequisites: Python 3.12, [uv](https://github.com/astral-sh/uv), Docker.
 
 ```bash
-git clone https://github.com/<your-fork>/WNA.git
-cd WNA
+git clone https://github.com/yusuf-abdoul/Whatsapp-Navigation-Assistant.git
+cd Whatsapp-Navigation-Assistant
 uv sync
 cp .env.example .env                  # fill in secrets
 docker compose up -d postgres redis
@@ -109,5 +109,5 @@ required — the contribution grant in Apache-2.0 §5 is sufficient.
 
 ## Questions
 
-Open a [discussion](https://github.com/<your-fork>/WNA/discussions) — or ask
+Open a [discussion](https://github.com/yusuf-abdoul/Whatsapp-Navigation-Assistant/discussions) — or ask
 in an issue if there isn't a discussion category that fits.
