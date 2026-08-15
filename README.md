@@ -101,6 +101,12 @@ We ship changes in small, reviewable slices. Every PR must pass `ruff`,
 The community follows the [Contributor Covenant Code of
 Conduct](CODE_OF_CONDUCT.md).
 
+## Where we're headed
+
+See [ROADMAP.md](ROADMAP.md) for what's next — voice input, replies in
+main Nigerian languages, Meta WhatsApp Cloud API for production, more
+cities.
+
 ## Deeper reading
 
 - [Architecture](docs/architecture.md) — module map + request lifecycle.
