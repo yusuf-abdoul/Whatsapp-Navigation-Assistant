@@ -52,11 +52,7 @@ async def _list_admins() -> str:
     engine = create_async_engine(get_settings().database_url)
     try:
         async with async_sessionmaker(engine, expire_on_commit=False)() as db:
-            rows = (
-                (await db.execute(select(User).where(User.is_admin.is_(True))))
-                .scalars()
-                .all()
-            )
+            rows = (await db.execute(select(User).where(User.is_admin.is_(True)))).scalars().all()
             if not rows:
                 return "No admins."
             return "\n".join(f"{u.wa_number}\t{u.name or ''}" for u in rows)

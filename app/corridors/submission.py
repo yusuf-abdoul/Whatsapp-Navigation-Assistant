@@ -318,9 +318,7 @@ def _haversine_m(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
     return 2 * r * asin(sqrt(a))
 
 
-async def _find_same_place(
-    db: AsyncSession, city: str, raw: AnchorInput
-) -> Anchor | None:
+async def _find_same_place(db: AsyncSession, city: str, raw: AnchorInput) -> Anchor | None:
     """Return an existing anchor that likely names the same physical place.
 
     Runs three checks in order, each requiring proximity within

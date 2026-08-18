@@ -442,9 +442,7 @@ async def _handle_destination_location(
     await _show_summary_and_confirm(session, channel)
 
 
-async def _show_summary_and_confirm(
-    session: SessionState, channel: ChannelAdapter
-) -> None:
+async def _show_summary_and_confirm(session: SessionState, channel: ChannelAdapter) -> None:
     """Build the segment view of the recording, show it, and prompt for confirm."""
     state = session.recording
     assert state is not None
@@ -481,8 +479,7 @@ async def _show_summary_and_confirm(
     await store.put(session)
     await channel.send_text(
         session.user_id,
-        "\n".join(lines)
-        + "\n\nReply 'confirm' to submit for review, or 'cancel' to discard.",
+        "\n".join(lines) + "\n\nReply 'confirm' to submit for review, or 'cancel' to discard.",
     )
 
 
@@ -570,9 +567,7 @@ def _strip_anchor_prefix(text: str) -> str:
     return _ANCHOR_PREFIX_RE.sub("", text).strip() or text.strip()
 
 
-def _duration_min_between(
-    start: RecordedAnchor, end: RecordedAnchor
-) -> int | None:
+def _duration_min_between(start: RecordedAnchor, end: RecordedAnchor) -> int | None:
     """Minutes between two anchor timestamps, floor-clamped to 1."""
     delta = end.ts - start.ts
     minutes = round(delta.total_seconds() / 60)
@@ -625,9 +620,7 @@ def _build_segments(state: RecordingState) -> list[dict]:  # type: ignore[type-a
                 "to_anchor": state.anchors[end_i].name,
                 "passthroughs": passthrough_names,
                 "leg": state.legs[seg_idx],
-                "duration_min": _duration_min_between(
-                    state.anchors[start_i], state.anchors[end_i]
-                ),
+                "duration_min": _duration_min_between(state.anchors[start_i], state.anchors[end_i]),
             }
         )
     return segments

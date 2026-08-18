@@ -38,9 +38,7 @@ async def _create_user(session: AsyncSession, wa_number: str, *, is_admin: bool 
 
 
 async def _get_is_admin(session: AsyncSession, wa_number: str) -> bool:
-    row = (
-        await session.execute(select(User).where(User.wa_number == wa_number))
-    ).scalar_one()
+    row = (await session.execute(select(User).where(User.wa_number == wa_number))).scalar_one()
     return row.is_admin
 
 

@@ -275,9 +275,7 @@ async def test_end_before_start_is_a_no_op(fake_redis, channel) -> None:
 # --- Bug fixes: destination location capture + passthrough model -------
 
 
-async def test_end_prompts_for_destination_location_when_pending_leg(
-    fake_redis, channel
-) -> None:
+async def test_end_prompts_for_destination_location_when_pending_leg(fake_redis, channel) -> None:
     """Bug 1: contributor at destination said 'end' after describing the last
     leg. Bot should ask for the destination's live location instead of
     silently dropping the pending leg."""
@@ -340,9 +338,7 @@ async def test_same_vehicle_marks_anchor_as_passthrough(fake_redis, channel) -> 
     assert len(state.recording.legs) == 1
 
 
-async def test_recording_with_passthroughs_persists_one_segment(
-    fake_redis, channel
-) -> None:
+async def test_recording_with_passthroughs_persists_one_segment(fake_redis, channel) -> None:
     """End-to-end: 4 anchors, 2 'same' answers, one leg → one segment with
     2 passthroughs in the DB."""
     await handle(_text("start trip"), channel)
