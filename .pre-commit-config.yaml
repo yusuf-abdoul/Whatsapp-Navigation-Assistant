@@ -1,0 +1,25 @@
+# Install with: uv run pre-commit install
+# Runs on every `git commit`; blocks the commit if any hook rewrites or errors.
+#
+# Keep this list a strict SUBSET of what CI runs, so a passing local commit
+# implies (though doesn't guarantee) CI will pass. Fast checks only — heavier
+# things (mypy, pytest) belong in `make ci` before pushing.
+
+repos:
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.7.4
+    hooks:
+      - id: ruff
+        args: [--fix]
+      - id: ruff-format
+
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v5.0.0
+    hooks:
+      - id: trailing-whitespace
+      - id: end-of-file-fixer
+      - id: check-yaml
+      - id: check-added-large-files
+        args: ["--maxkb=500"]
+      - id: check-merge-conflict
+      - id: detect-private-key

@@ -18,20 +18,30 @@ report, a new corridor for your neighbourhood, a fix, or a feature.
 
 ## Local development
 
-Prerequisites: Python 3.12, [uv](https://github.com/astral-sh/uv), Docker.
+Prerequisites: Python 3.12, [uv](https://github.com/astral-sh/uv), Docker,
+`make`.
 
 ```bash
 git clone https://github.com/Commute-NG/Whatsapp-Navigation-Assistant.git
 cd Whatsapp-Navigation-Assistant
-uv sync
+make install                          # uv sync against uv.lock
 cp .env.example .env                  # fill in secrets
-docker compose up -d postgres redis
+make services                         # start postgres + redis
 uv run alembic upgrade head
 uv run python -m app.corridors.seed
 uv run uvicorn app.main:app --reload
 ```
 
 Open http://localhost:8000. Health: http://localhost:8000/health.
+
+**One-time setup for automatic formatting on commit:**
+
+```bash
+make pre-commit                       # installs the git hook
+```
+
+After that, every `git commit` auto-runs `ruff format` and blocks the
+commit if anything's out of shape.
 
 **Testing WhatsApp locally.** The bot needs a public URL. Use ngrok:
 
@@ -48,18 +58,29 @@ Join the sandbox from your phone and message it. Full walkthrough:
 
 ## Tests, lint, types
 
-Every PR must pass all three:
+Every PR must pass the same checks CI runs. One command runs them all:
 
 ```bash
-uv run pytest          # tests
-uv run ruff check .    # lint
-uv run mypy app        # types
+make ci                # install + lint + typecheck + test
 ```
+
+Or run individual pieces:
+
+```bash
+make fmt               # apply ruff format + fix
+make lint              # ruff check + format check (no rewrites)
+make typecheck         # mypy app
+make test              # pytest (needs services running)
+```
+
+The workflow file at [`.github/workflows/ci.yml`](.github/workflows/ci.yml)
+just calls `make ci`, so `make ci` locally == green build on GitHub.
+If it passes locally, it passes on CI.
 
 - Unit tests live in `tests/unit/` — pure logic, no network or Redis.
 - Integration tests live in `tests/integration/` — real Postgres (via
-  `docker compose up -d postgres`) + fake Redis. Tests use a separate
-  `wna_test` database, so your dev data is never touched.
+  `make services`) + fake Redis. Tests use a separate `wna_test` database,
+  so your dev data is never touched.
 
 ## Pull requests
 
