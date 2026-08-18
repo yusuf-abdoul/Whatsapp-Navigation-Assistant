@@ -49,5 +49,5 @@ issue titled `roadmap: <topic>` before you start so we can align on scope.
 ---
 
 Want to pick something up? File an issue, or comment on an existing one
-tagged [`good first issue`](https://github.com/yusuf-abdoul/Whatsapp-Navigation-Assistant/labels/good%20first%20issue)
-or [`help wanted`](https://github.com/yusuf-abdoul/Whatsapp-Navigation-Assistant/labels/help%20wanted).
+tagged [`good first issue`](https://github.com/Commute-NG/Whatsapp-Navigation-Assistant/labels/good%20first%20issue)
+or [`help wanted`](https://github.com/Commute-NG/Whatsapp-Navigation-Assistant/labels/help%20wanted).

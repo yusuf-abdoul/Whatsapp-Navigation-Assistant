@@ -43,7 +43,7 @@ Meta WhatsApp Business Cloud API for production.
 
 ```bash
 # Prerequisites: Python 3.12, uv (https://github.com/astral-sh/uv), Docker.
-git clone https://github.com/yusuf-abdoul/Whatsapp-Navigation-Assistant.git
+git clone https://github.com/Commute-NG/Whatsapp-Navigation-Assistant.git
 cd Whatsapp-Navigation-Assistant
 uv sync
 cp .env.example .env                    # fill in secrets (see below)
@@ -92,7 +92,7 @@ tests/
 
 Please read [CONTRIBUTING.md](CONTRIBUTING.md) for how to file bugs, propose
 features, and open pull requests. First-time contributors: issues tagged
-[`good first issue`](https://github.com/yusuf-abdoul/Whatsapp-Navigation-Assistant/labels/good%20first%20issue)
+[`good first issue`](https://github.com/Commute-NG/Whatsapp-Navigation-Assistant/labels/good%20first%20issue)
 are a good place to start.
 
 We ship changes in small, reviewable slices. Every PR must pass `ruff`,
