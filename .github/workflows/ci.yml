@@ -40,7 +40,8 @@ jobs:
         with:
           python-version: "3.12"
       - uses: astral-sh/setup-uv@v3
-      - run: uv sync --all-extras
+      - run: uv sync --all-extras --frozen
+      - run: uv run python --version && uv run mypy --version && uv run ruff --version
       - run: uv run ruff check .
       - run: uv run ruff format --check .
       - run: uv run mypy app
